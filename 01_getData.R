@@ -5,35 +5,46 @@
 
 # [1] Setting working directory, initilization and reading the required packages:
 # -------------------------------------------------------------------------------
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # set working directory to file location
+rm(list = ls()) # clear global environment
+cat("\014") # clear console
 
-setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-rm(list = ls())
-cat("\014")
+if(!require(pacman)) install.packages("pacman") # install pacman package if not installed
+pacman::p_load(tidyverse, devtools, rvest) # load three packages (and install them if not found on machine)
 
-if(!require(pacman)) install.packages("pacman")
-pacman::p_load(tidyverse, devtools, rvest)
-
-if(!require(tidycovid19)) install_github("joachim-gassen/tidycovid19")
-countryLevelData = download_merged_data(silent = TRUE, cached = TRUE)
+if(!require(tidycovid19)) install_github("joachim-gassen/tidycovid19") # install tidycovid19 from GitHub if not installed
 
 
 # [2] Extracting the needed data from GitHub:
 # -------------------------------------------
+
+# [a] Country/ Nation's level data:
+# ---------------------------------
+countryLevelData = download_merged_data(silent = TRUE, cached = TRUE) # download all the country level data
+
+# [b] U.S. county level data:
+# ---------------------------
 gitURL = "https://github.com/JieYingWu/COVID-19_US_County-level_Summaries/tree/master/data"
 
-repoFiles = read_html(gitURL) %>%
-  html_node("div > div.Box.mb-3.Box--condensed > table") %>% 
-  html_table() %>% 
-  slice(-c(1,2)) %>% 
-  select(-Type)
+repoTable = 
+  read_html(gitURL) %>% # reading the webpage contents 
+  html_node("div > div.Box.mb-3.Box--condensed > table") %>% # extracting contents of the table
+  html_table() # cleaning the extracted contents by removing unnecessary HTML tags
 
-repoFileURLS = repoFiles$Name %>% 
-  str_detect(".csv") %>%  
-  {subset(repoFiles, subset = ., select = Name)} %>% 
-  pull() %>% 
+repoFileURLS = 
+  str_detect(repoTable$Name, ".csv") %>%  # detecting all csv file locations in repoTable's Name column
+  {subset(repoTable, subset = ., select = Name)} %>% # passing the locations to the subset argument of subset function
+  pull() %>% # converting it into a character vector
   paste0("https://raw.githubusercontent.com/JieYingWu/COVID-19_US_County-level_Summaries/master/data/", .)
   
-covidCountyList = lapply(repoFileURLS, read_csv)
-names(covidCountyList) = str_match(repoFileURLS, "data/(\\w+?).csv")[,2]
 
+countyLevelData = lapply(repoFileURLS, read_csv) # extracting all csv data and saving it into a list
+names(countyLevelData) = str_match(repoFileURLS, "data/(\\w+?).csv")[,2] # naming the sublists
+
+for (counter in vector) {
+  
+}
+
+# [3] Tidying the county level data:
+# ----------------------------------
 # Note all dates have to be converted using as.Date(Some Value, origin = '0001-01-01')
