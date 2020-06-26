@@ -10,10 +10,10 @@ rm(list = ls()) # clear global environment
 cat("\014") # clear console
 
 if(!require(pacman)) install.packages("pacman") # install pacman package if not installed
-pacman::p_load(tidyverse, devtools, rvest) # load three packages (and install them if not found on machine)
+pacman::p_load(tidyverse, devtools, rvest, magrittr) # load three packages (and install them if not found on machine)
 
 if(!require(tidycovid19)) install_github("joachim-gassen/tidycovid19") # install tidycovid19 from GitHub if not installed
-
+library(tidycovid19)
 
 # [2] Extracting the needed data from GitHub:
 # -------------------------------------------
