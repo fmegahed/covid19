@@ -1,0 +1,106 @@
+---
+title: "A personalized and non-parametric framework for detecting changes in gait cycles"
+author:
+  - name: "Longwen Zhao ^[Email: longwen.zhao@slu.edu | Website: <a href=\"https://www.linkedin.com/in/saeb-ragani-lamooki-123a9658/\">LinkedIn</a>]"
+    affiliation: College of  Public Health and Social Justice, Saint Louis University
+  - name: "Fadel M. Megahed ^[Email: fmegahed@miamioh.edu | Phone: +1-513-529-4185 | Website: <a href=\"https://miamioh.edu/fsb/directory/?up=/directory/megahefm\">Miami University Official</a>]"
+    affiliation: Farmer School of Business, Miami University
+  - name: "Steve Rigdon ^[Email: steve.rigdon@slu.edu | Website: <a href=\"https://www.slu.edu/public-health-social-justice/faculty/rigdon-steven.php\">Saint Louis University Official</a>]"
+    affiliation: College of  Public Health and Social Justice, Saint Louis University
+bibliography: covidRefs.bib
+csl: apa.csl
+date: "`r format(Sys.time(), '%B %d, %Y')`"
+output: 
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+    number_sections: TRUE
+    theme: simplex
+    paged_df: TRUE
+    code_folding: show
+  includes:
+    in_header: structure.tex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      warning = FALSE,
+                      message = FALSE,
+                      cache = TRUE,
+                      progress = FALSE, 
+                      verbose = FALSE,
+                      dpi = 600)
+options(qwraps2_markup = "markdown")
+```
+
+# R Setup and Required Packages
+In this project, the open-source R programming language is used to model the progression in the COVID-19 pandemic in different U.S. counties. R is maintained by an international team of developers who make the language available at [The Comprehensive R Archive Network](https://cran.r-project.org/). Readers interested in reusing our code and reproducing our results should have R installed locally on their machines. R can be installed on a number of different operating systems (see [Windows](https://cran.r-project.org/bin/windows/), [Mac](https://cran.r-project.org/bin/macosx/), and [Linux](https://cran.r-project.org/bin/linux/) for the installation instructions for these systems). We also recommend using the RStudio interface for R. The reader can [download RStudio](http://www.rstudio.com/ide) for free by following the instructions at the link. For non-R users, we recommend the [Hands-on Programming with R](https://rstudio-education.github.io/hopr/packages.html) for a brief overview of the software's functionality. Hereafter, we assume that the reader has an introductory understanding of the R programming language.
+
+In the code chunk below, we load the packages used to support our analysis.
+
+```{r packages}
+if(require(checkpoint)==FALSE) install.packages("checkpoint") # check to see if checkpoint is installed; if not, install it
+library(checkpoint) # package used to facilitate the reproducibility of our work
+
+# a checkpoint of R packages on CRAN on June 08, 2020 to enable the reproduction of our work in the future
+checkpoint("2020-06-26")
+
+# check if packages are not installed; if yes, install missing packages
+packages = c("tidyverse", "magrittr", # typical data analysis packages
+             "devtools", # used to install a package from GitHub
+             "rvest", # used for web scraping
+             "COVID19", # used to obtain county level (we could have also used for country level)
+             "DT") # for printing nice looking data in R Markdown
+newPackages = packages[!(packages %in% installed.packages()[,"Package"])]
+if(length(newPackages) > 0) install.packages(newPackages)
+
+# using the library command to load all packages; invisible used to avoid printing all packages and dependencies used
+invisible(lapply(packages, library, character.only = TRUE))
+
+if(!require(tidycovid19)) install_github("joachim-gassen/tidycovid19") # install tidycovid19 from GitHub if not installed
+library(tidycovid19) # used for obtaining country data
+
+set.seed(2020)
+sInfo = sessionInfo()
+```
+
+# Obtaining National Data
+While the emphasis of this project is to analyze the factors affecting the spread of COVID-19 per each U.S. county, in this section, we capitalize on the excellent R package by [Joachim Gassen](https://github.com/joachim-gassen), [tidycovid19](https://github.com/joachim-gassen/tidycovid19), to obtain country-level data. This data can help other researchers in potentially understanding why the disease spread across the U.S. counties may be different than other subregions for other countries. Thus, we provide the dataset from the [tidycovid19](https://github.com/joachim-gassen/tidycovid19) for the sake of completeness. Note that some of this data could have been obtained from the [COVID19 package](https://cran.r-project.org/web/packages/COVID19/COVID19.pdf), however, we found the [tidycovid19](https://github.com/joachim-gassen/tidycovid19) to be more comprehensive at the time of our initial analysis (2020-26-06).
+
+```{r nationalLevel}
+countryLevelData = download_merged_data(silent = TRUE, cached = TRUE) # download all the country level data
+saveRDS(countryLevelData, paste0("../Data/countryTidy-",Sys.Date(),".rds"))
+```
+
+
+# Obtaining U.S. Counties Data
+In this section, we utilize the [COVID19 package](https://cran.r-project.org/web/packages/COVID19/COVID19.pdf) to obtain the following information:  
+    - Confirmed cases, recoveries and deaths    
+    - policy information (e.g., transport closing, school closing, closing event, movement restrictions, testing policieis, and contact tracing)  
+    - Population and standard geographic information for each county  
+    - Variables captured in both [Apple's](https://www.apple.com/covid19/mobility) and [Google's](https://www.google.com/covid19/mobility/index.html?hl=en) mobility reports
+
+From this information, we have also computed the new daily confirmed cases and deaths per county. The data is stored in a tidy format, but can be expanded to a wide format using `pivot_wider()` from the [tidyverse](https://www.tidyverse.org/) package.
+
+```{r confirmedCases, results='asis'}
+appleURL = "https://covid19-static.cdn-apple.com/covid19-mobility-data/2010HotfixDev29/v3/en-us/applemobilitytrends-2020-06-24.csv" # inspected from https://www.apple.com/covid19/mobility
+googleURL = "https://www.gstatic.com/covid19/mobility/Global_Mobility_Report.csv"
+counties = covid19(country = "US", 
+                   level = 3, # for county
+                   start = "2020-01-22", # starting Date
+                   end = Sys.Date(), # end Date -- note mobility reports typically lags by a few days
+                   amr = appleURL, # apple mobility report data
+                   gmr = googleURL, # google's mobility report data
+                   wb = NULL, # world bank data not helpful for county level analysis
+                   verbose = FALSE)
+
+countyLevelData = counties %>% 
+  mutate(newCases = c(NA, diff(confirmed)), newDeaths = c(NA, diff(deaths) ) )
+
+saveRDS(countyLevelData, paste0("../Data/countyTidy-",Sys.Date(),".rds"))
+
+data.frame(variable = names(countyLevelData), 
+           `class` = sapply(countyLevelData, typeof),
+           row.names = NULL) %>% DT::datatable(rownames = NULL)
+```
+
