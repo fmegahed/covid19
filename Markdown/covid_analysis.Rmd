@@ -1,9 +1,9 @@
 ---
-title: "A personalized and non-parametric framework for detecting changes in gait cycles"
+title: "A Retrospective Analysis of COVID Cases by County"
 author:
-  - name: "Longwen Zhao ^[Email: longwen.zhao@slu.edu | Website: <a href=\"https://www.linkedin.com/in/longwen-zhao-06916486\">LinkedIn</a>]"
-    affiliation: College of  Public Health and Social Justice, Saint Louis University
   - name: "Fadel M. Megahed ^[Email: fmegahed@miamioh.edu | Phone: +1-513-529-4185 | Website: <a href=\"https://miamioh.edu/fsb/directory/?up=/directory/megahefm\">Miami University Official</a>]"
+    affiliation: Farmer School of Business, Miami University
+  - name: "Allison Jones-Farmer ^[Email: farmerl2@miamioh.edu | Phone: +1-513-529-4823 | Website: <a href=\"https://miamioh.edu/fsb/directory/?up=/directory/farmerl2\">Miami University Official</a>]"
     affiliation: Farmer School of Business, Miami University
   - name: "Steve Rigdon ^[Email: steve.rigdon@slu.edu | Website: <a href=\"https://www.slu.edu/public-health-social-justice/faculty/rigdon-steven.php\">Saint Louis University Official</a>]"
     affiliation: College of  Public Health and Social Justice, Saint Louis University
@@ -33,74 +33,256 @@ knitr::opts_chunk$set(echo = TRUE,
 options(qwraps2_markup = "markdown")
 ```
 
+# Questions for the Group {-}
+
+- <span style="color: blue;">What should be our starting date for the analysis?</span> I currently have it set to Monday March 04, 2020 (which according to [this Google Search](https://www.google.com/search?q=confirmed+cases+in+the+us+by+date&oq=confirmed+cases+in+the+us+by+date&aqs=chrome..69i57.6902j0j7&sourceid=chrome&ie=UTF-8) seems to indicate that the total new cases were just 26 on that day, which I thought was reasonably low enough for the analysis.  
+
+- I believe to smooth the different time series (i.e., confirmed cases and/or deaths per county) we can employ the following:  
+  - *Seasonal Differences:* <span style="color: blue;"> currently using a difference with lag 7.</span>  
+  - *Moving averages/medians:* <span style="color: blue;"> Is it reasonable to use a centered window given that we are doing retrospective analysis? </span> I believe so but we can change it if needed -- I am highlighting this here to make it clear for the group. **I am guessing that the ones used in the visualization are right centered given they update the visualizations daily.** I can do that with the align parameter inside either the `rollmean()` or `rollmedian()`, so  <span style="color: blue;"> let us discuss what makes the most sense</span>.  
+    - Currently constructed variables with a 7 and 14 day moving average.  
+    - But only a 7-day moving median given that the `rollmedian()` function requires an odd parameter.  
+    - See Section 3.1 for more details.
+  
+  - <span style="color: blue;"> What clustering approach we should be using? </span> The [vignette accompanying the dtwclsut](https://cran.r-project.org/web/packages/dtwclust/vignettes/dtwclust.pdf) provides a detailed introduction to the different methods, with R code in the different appendices. For now, I have did a univariate implementation of the multivariate analysis that we performed in our [JQT Paper](https://fmegahed.github.io/fatigue_case_jqt.html).
+
+
+
 # R Setup and Required Packages
 In this project, the open-source R programming language is used to model the progression in the COVID-19 pandemic in different U.S. counties. R is maintained by an international team of developers who make the language available at [The Comprehensive R Archive Network](https://cran.r-project.org/). Readers interested in reusing our code and reproducing our results should have R installed locally on their machines. R can be installed on a number of different operating systems (see [Windows](https://cran.r-project.org/bin/windows/), [Mac](https://cran.r-project.org/bin/macosx/), and [Linux](https://cran.r-project.org/bin/linux/) for the installation instructions for these systems). We also recommend using the RStudio interface for R. The reader can [download RStudio](http://www.rstudio.com/ide) for free by following the instructions at the link. For non-R users, we recommend the [Hands-on Programming with R](https://rstudio-education.github.io/hopr/packages.html) for a brief overview of the software's functionality. Hereafter, we assume that the reader has an introductory understanding of the R programming language.
 
-In the code chunk below, we load the packages used to support our analysis.
+In the code chunk below, we load the packages used to support our analysis. Note that the code of this and any of the code chunks can be hidden by clicking on the 'Hide' button to facilitate the navigation.
 
 ```{r packages}
 if(require(checkpoint)==FALSE) install.packages("checkpoint") # check to see if checkpoint is installed; if not, install it
 library(checkpoint) # package used to facilitate the reproducibility of our work
 
-# a checkpoint of R packages on CRAN on June 08, 2020 to enable the reproduction of our work in the future
-checkpoint("2020-06-26")
+# a checkpoint of R packages on CRAN on August 28, 2020 to enable the reproduction of our work in the future
+checkpoint("2020-08-28")
 
 # check if packages are not installed; if yes, install missing packages
-packages = c("tidyverse", "magrittr", # typical data analysis packages
-             "devtools", # used to install a package from GitHub
-             "rvest", # used for web scraping
-             "COVID19", # used to obtain county level (we could have also used for country level)
-             "DT") # for printing nice looking data in R Markdown
+packages = c("tidyverse", "magrittr", "dataPreparation", "recipes", "doParallel", # data analysis
+             "COVID19", # used to obtain county level (can be also used for country level)
+             "DT", # for printing nice looking data in R Markdown
+             "zoo", "fpp2", #for time series analysis in R
+             "dtwclust", "factoextra") # for cluster analysis
 newPackages = packages[!(packages %in% installed.packages()[,"Package"])]
 if(length(newPackages) > 0) install.packages(newPackages)
 
 # using the library command to load all packages; invisible used to avoid printing all packages and dependencies used
 invisible(lapply(packages, library, character.only = TRUE))
 
-if(!require(tidycovid19)) install_github("joachim-gassen/tidycovid19") # install tidycovid19 from GitHub if not installed
-library(tidycovid19) # used for obtaining country data
-
 set.seed(2020)
 sInfo = sessionInfo()
 ```
 
-# Obtaining National Data
-While the emphasis of this project is to analyze the factors affecting the spread of COVID-19 per each U.S. county, in this section, we capitalize on the excellent R package by [Joachim Gassen](https://github.com/joachim-gassen), [tidycovid19](https://github.com/joachim-gassen/tidycovid19), to obtain country-level data. This data can help other researchers in potentially understanding why the disease spread across the U.S. counties may be different than other subregions for other countries. Thus, we provide the dataset from the [tidycovid19](https://github.com/joachim-gassen/tidycovid19) for the sake of completeness. Note that some of this data could have been obtained from the [COVID19 package](https://cran.r-project.org/web/packages/COVID19/COVID19.pdf), however, we found the [tidycovid19](https://github.com/joachim-gassen/tidycovid19) to be more comprehensive at the time of our initial analysis (2020-26-06).
+# Extracting U.S. Counties' Data & Computing their New Cases/Deaths
+In this section, we utilize the [COVID19 package](https://cran.r-project.org/web/packages/COVID19/COVID19.pdf) to obtain the following information: [@Guidotti2020]    
 
-```{r nationalLevel}
-countryLevelData = download_merged_data(silent = TRUE, cached = TRUE) # download all the country level data
-saveRDS(countryLevelData, paste0("../Data/countryTidy-",Sys.Date(),".rds"))
-```
+  - Confirmed cases, recoveries and deaths;    
+  - policy information (e.g., transport closing, school closing, closing event, movement restrictions, testing policieis, and contact tracing);  
+  - Population and standard geographic information for each county; and  
+  - Variables captured in both [Apple's](https://www.apple.com/covid19/mobility) and [Google's](https://www.google.com/covid19/mobility/index.html?hl=en) mobility reports.
+
+From this information, we have also computed the new daily and weekly confirmed cases/deaths per county. The data is stored in a tidy format, but can be expanded to a wide format using `pivot_wider()` from the [tidyverse](https://www.tidyverse.org/) package.
 
 
-# Obtaining U.S. Counties Data
-In this section, we utilize the [COVID19 package](https://cran.r-project.org/web/packages/COVID19/COVID19.pdf) to obtain the following information:  
-    - Confirmed cases, recoveries and deaths    
-    - policy information (e.g., transport closing, school closing, closing event, movement restrictions, testing policieis, and contact tracing)  
-    - Population and standard geographic information for each county  
-    - Variables captured in both [Apple's](https://www.apple.com/covid19/mobility) and [Google's](https://www.google.com/covid19/mobility/index.html?hl=en) mobility reports
-
-From this information, we have also computed the new daily confirmed cases and deaths per county. The data is stored in a tidy format, but can be expanded to a wide format using `pivot_wider()` from the [tidyverse](https://www.tidyverse.org/) package.
+## Data based on COVID19 Package
 
 ```{r confirmedCases, results='asis'}
-appleURL = "https://covid19-static.cdn-apple.com/covid19-mobility-data/2010HotfixDev29/v3/en-us/applemobilitytrends-2020-06-24.csv" # inspected from https://www.apple.com/covid19/mobility
+appleURL = "https://covid19-static.cdn-apple.com/covid19-mobility-data/2015HotfixDev17/v3/en-us/applemobilitytrends-2020-08-30.csv" # inspected from https://www.apple.com/covid19/mobility
 googleURL = "https://www.gstatic.com/covid19/mobility/Global_Mobility_Report.csv"
 counties = covid19(country = "US", 
                    level = 3, # for county
-                   start = "2020-01-22", # starting Date
-                   end = Sys.Date(), # end Date -- note mobility reports typically lags by a few days
+                   start = "2020-03-04", # First Monday in March (a total of 26 new cases in entire US)
+                   end = Sys.Date(), # end Date 
                    amr = appleURL, # apple mobility report data
                    gmr = googleURL, # google's mobility report data
                    wb = NULL, # world bank data not helpful for county level analysis
                    verbose = FALSE)
 
-countyLevelData = counties %>% 
-  mutate(newCases = c(NA, diff(confirmed)), newDeaths = c(NA, diff(deaths) ) )
+counties %<>% 
+  fastFilterVariables(verbose = FALSE) %>% #dropping invariant columns or bijections
+  filter(date < Sys.Date()) %>%  # cases are incomplete for today's date
+  filter(!is.na(key_numeric)) %>%  # these are not counties
+  group_by(id) %>% # grouping the data by the id column to make computations correct
+  arrange(id, date) %>% # to ensure correct calculations
+  mutate(day = wday(date, label = TRUE) %>% factor(ordered = F), # day of week
+         newCasesFromYesterday = c(NA, diff(confirmed)), # computing new daily cases
+         newDeathsFromYesterday = c(NA, diff(deaths)),  # computing new daily deaths
+         newCasesFromLastWeek = c(rep(NA,7), diff(confirmed, 7)), # week-over-week cases
+         newDeathsFromLastWeek = c(rep(NA,7), diff(deaths, 7)) ) # week-over-week deaths
 
-saveRDS(countyLevelData, paste0("../Data/countyTidy-",Sys.Date(),".rds"))
+# manually identifying factor variables
+factorVars = c("school_closing", "workplace_closing", "cancel_events",
+               "gatherings_restrictions", "transport_closing", "stay_home_restrictions",
+               "internal_movement_restrictions", "international_movement_restrictions",
+               "information_campaigns", "testing_policy", "contact_tracing")
 
-data.frame(variable = names(countyLevelData), 
-           `class` = sapply(countyLevelData, typeof),
-           row.names = NULL) %>% DT::datatable(rownames = NULL)
+counties %<>% # converting those variables into character and then factor
+  mutate_at(.vars = vars(any_of(factorVars)), .funs = as.character) %>% 
+  mutate_at(.vars = vars(any_of(factorVars)), .funs = as.factor)
+
+
+cat(paste0("At this stage, we have only read the data based on the covid package. The resulting data is stored at an object titled counties, which contains ", nrow(counties), " observations and ",
+          ncol(counties), " variables. Note that we have filtered observations that do not have a numeric key and removed some columns that do not add any value to future analysis (e.g., invariant cols)."))
 ```
 
+## Other Possibly Relevant Data
+
+In the code chunk below, we merge our counties' COVID data with four additional datasets:  
+
+- *Rural/ Underserved Counties:* From the [Consumer Financial Protection Bureau](https://www.consumerfinance.gov/policy-compliance/guidance/mortgage-resources/rural-and-underserved-counties-list/), we have obtained the Final 2020 List titled: *Rural or underserved counties*. Per the website, the procedure for determining the classification of a county is as follows: "Beginning in 2020, the rural or underserved counties lists use a methodology for identifying underserved counties described in the Bureau’s interpretive rule: Truth in Lending Act (Regulation Z); [Determining “Underserved” Areas Using Home Mortgage Disclosure Act Data](https://www.consumerfinance.gov/policy-compliance/rulemaking/final-rules/truth-lending-regulation-z-underserved-areas-home-mortgage-disclosure-act-data/)."   
+
+- Based on @DVN/VOQCHQ_2018, we have obtained the voting results for all counties in the 2016 Presidential elections. The data was used to compute the percentage of total votes that went to President Trump, with the underlying hypothesis that the politicization of COVID response (e.g., perception/willingness to use face masks, policies and the population's reaction to the disease) may be explained by party affiliation.   
+
+- Based on the [following Kaiser Health News Webpage](https://khn.org/news/as-coronavirus-spreads-widely-millions-of-older-americans-live-in-counties-with-no-icu-beds/#lookup), we extracted by county information on: (a) number of ICU beds per 10,000 residents; (b) percent of population aged 60+; and (c) number of ICU beds per 10,000 60+aged residents.  
+
+- Based on the [Census's Small Area Income and Poverty Estimates (SAIPE) Program](https://www.census.gov/programs-surveys/saipe.html), we extracted the estimate for the percent of population in poverty. The estimate is based on 2018 data (released in December 2019). At the time of the start of our analysis, these estimates were the most up to date publicly available data.
+
+
+```{r otherData, results="asis"}
+# [A] Rural or Urban Classification of the County
+ru = read.csv("https://www.consumerfinance.gov/documents/8911/cfpb_rural-underserved-list_2020.csv")
+ru %<>%  transmute(key_numeric = FIPS.Code,
+                countyType = "Rural/Underserved") # creates two vars and drop old vars
+
+counties = merge(counties, ru, by = "key_numeric", all.x = TRUE)
+counties$countyType %<>% replace_na("Other")
+
+
+# [B] 2016 Presidential Elections County Data from Harvard https://doi.org/10.7910/DVN/VOQCHQ
+elections = read.csv("../Data/countypres_2000-2016.csv") %>% 
+  filter(year == 2016 & party == "republican") %>% 
+  mutate(key_numeric = FIPS, 
+         percRepVotes = 100*(candidatevotes/totalvotes) ) %>% 
+  select(key_numeric, percRepVotes)
+
+counties = merge(counties, elections, by = "key_numeric", all.x = TRUE)
+
+# [C] Hospital Beds by County
+# https://khn.org/news/as-coronavirus-spreads-widely-millions-of-older-americans-live-in-counties-with-no-icu-beds/
+hospitals = read.csv("../Data/data-FPBfZ.csv") %>% 
+  transmute(State = State,
+            County = County,
+            PercentSeniors = Percent.of.Population.Aged.60.,
+            icuBedsPer10000Residents = 10000 * (ICU.Beds/Total.Population),
+            icuBedsPer10000Seniors = 10000 * ICU.Beds/Population.Aged.60.
+         )
+
+counties = merge(counties, hospitals, 
+                 by.x = c("administrative_area_level_2", "administrative_area_level_3"),
+                 by.y = c("State", "County"),
+                 all.x = TRUE)
+
+
+# [D] Poverty Estimates
+download.file("https://www2.census.gov/programs-surveys/saipe/datasets/2018/2018-state-and-county/est18all.xls", "../Data/est18all.xls", mode = "wb")
+
+poverty = readxl::read_excel("../Data/est18all.xls", skip = 3) %>% 
+  transmute(key_numeric = paste0(`State FIPS Code`, `County FIPS Code`) %>% as.numeric,
+            povertyPercent = `Poverty Percent, All Ages`)
+
+counties = merge(counties, poverty, by = "key_numeric", all.x = TRUE)
+
+counties %<>% group_by(id) # Needs to be regrouped again after the merge steps 
+
+# Saving the data into RDS and CSV
+saveRDS(counties, paste0("../Data/countyTidy-",Sys.Date(),".rds"))
+write.csv(counties, paste0("../Data/countyTidy-",Sys.Date(),".csv"), 
+          row.names = FALSE)
+
+cat(paste0("After merging these four additional datasets with our counties object, we have ", nrow(counties), " observations and ",
+          ncol(counties), " variables. Note that the merged data is saved both as an RDS and CSV."))
+```
+
+# Data Preparation
+
+## Smoothing Alternatives for the Week-over-Week Confirmed Cases
+
+In the code chunk below, we have generated three smoothed variables for each of the *confirmed* and the *newCasesFromLastWeek* variables within the `county` data frame. The three smoothed variables are:  
+
+- A 7-day centered moving average for [variable];    
+- A 7-day centered moving median for [variable]; and  
+- A 14-day centered moving average for [variable];
+
+```{r smoothing, results= "asis"}
+wowCases = counties %>% 
+  select(id, key_google_mobility, date, confirmed, newCasesFromLastWeek) %>%
+  arrange(id, date) %>% # to ensure correct calculations
+  mutate(confirmedMA7 = rollmean(confirmed, k = 7, fill = NA), # 7-day ma of cumulative cases
+         confirmedMM7 = rollmedian(confirmed, k = 7, fill = NA), # 7-day mm of cumulative cases 
+         confirmedMA14 = rollmean(confirmed, k = 14, fill = NA), # 14-day ma of cumulative cases 
+         newMA7 = rollmean(newCasesFromLastWeek, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
+         newMM7 = rollmedian(newCasesFromLastWeek, k = 7, fill = NA), # 7-day mm of new (adjusted) cases
+         newMA14 = rollmean(newCasesFromLastWeek, k = 14, fill = NA), # 7-day ma of new (adjusted) cases
+         )
+
+saveRDS(wowCases, paste0("../Data/wowCases-",Sys.Date(),".rds"))
+write.csv(wowCases, paste0("../Data/wowCases-",Sys.Date(),".csv"), 
+          row.names = FALSE)
+```
+
+## Reshaping the Data for Clustering
+
+```{r reshape}
+wowPrep = wowCases %>% 
+  select(id, date, newMM7) %>% 
+  pivot_wider(names_from = date, values_from = newMM7)
+
+constantColumns = whichAreConstant(wowPrep, verbose = F) # identifying constant columns
+wowPrep %<>% select( -all_of(constantColumns) ) %>%  # speeds up clustering by dec length of series
+  as.data.frame()
+row.names(wowPrep) = wowPrep[,1] # needed for tsclust
+wowPrep = wowPrep[,-1] %>% scale()
+```
+
+
+# Time-Series Clustering
+
+## A Heirarchical DTW Clustering Approach Based on the Median Smoothed, Differenced Cases from Last Week {.tabset .tabset-fade .tabset-pills}
+
+
+### Clustering
+
+```{r dtwClustnewCasesFromLastWeek}
+workers = makeCluster(detectCores() - 2) # Create parallel workers
+invisible(clusterEvalQ(workers, library("dtwclust"))) # Preload dtwclust in each worker per vignette
+registerDoParallel(workers) # Register the backend
+
+dtwUniv = tsclust(wowPrep, type = "hierarchical", 
+                 k=2L, distance = "dtw",
+                 seed = 2020)
+
+cuts = foreach(i=2:100) %dopar% cutree(dtwUniv, i)
+
+stopCluster(workers) # Stop parallel workers
+registerDoSEQ() # Go back to sequential computation
+
+save(dtwUniv, cuts, file = "../Data/dtwUniv.RData")
+
+fviz_nbclust(wowPrep, FUN = hcut, method = "silhouette", k.max=50)
+```
+
+
+### Plot
+
+```{r qplot}
+wowPrep %>%
+  as.matrix() %>%
+  gplots::heatmap.2 (
+    # dendrogram control
+    distfun = dtw_dist,
+    hclustfun = hclust,
+    dendrogram = "column",
+    Rowv = FALSE,
+    labRow = FALSE
+  )
+```
+
+<span style="color: blue;"> To be eventually continued!!!</span>
+
+
+---
+
+# References {-}
