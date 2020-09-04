@@ -26,4 +26,4 @@ vignettes/*.pdf
 
 *.csv
 
-Data\dtwUniv.RData
+Data/dtwUniv.RData
