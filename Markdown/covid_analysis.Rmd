@@ -33,29 +33,14 @@ knitr::opts_chunk$set(echo = TRUE,
 options(qwraps2_markup = "markdown")
 ```
 
-# Questions for the Group {-}
-
-- <span style="color: blue;">What should be our starting date for the analysis?</span> I currently have it set to Monday March 04, 2020 (which according to [this Google Search](https://www.google.com/search?q=confirmed+cases+in+the+us+by+date&oq=confirmed+cases+in+the+us+by+date&aqs=chrome..69i57.6902j0j7&sourceid=chrome&ie=UTF-8) seems to indicate that the total new cases were just 26 on that day, which I thought was reasonably low enough for the analysis.  
-
-- I believe to smooth the different time series (i.e., confirmed cases and/or deaths per county) we can employ the following:  
-  - *Seasonal Differences:* <span style="color: blue;"> currently using a difference with lag 7.</span>  
-  - *Moving averages/medians:* <span style="color: blue;"> Is it reasonable to use a centered window given that we are doing retrospective analysis? </span> I believe so but we can change it if needed -- I am highlighting this here to make it clear for the group. **I am guessing that the ones used in the visualization are right centered given they update the visualizations daily.** I can do that with the align parameter inside either the `rollmean()` or `rollmedian()`, so  <span style="color: blue;"> let us discuss what makes the most sense</span>.  
-    - Currently constructed variables with a 7 and 14 day moving average.  
-    - But only a 7-day moving median given that the `rollmedian()` function requires an odd parameter.  
-    - See Section 3.1 for more details.
-  
-  - <span style="color: blue;"> What clustering approach we should be using? </span> The [vignette accompanying the dtwclsut](https://cran.r-project.org/web/packages/dtwclust/vignettes/dtwclust.pdf) provides a detailed introduction to the different methods, with R code in the different appendices. For now, I have did a univariate implementation of the multivariate analysis that we performed in our [JQT Paper](https://fmegahed.github.io/fatigue_case_jqt.html).
-
-
-
 # R Setup and Required Packages
 In this project, the open-source R programming language is used to model the progression in the COVID-19 pandemic in different U.S. counties. R is maintained by an international team of developers who make the language available at [The Comprehensive R Archive Network](https://cran.r-project.org/). Readers interested in reusing our code and reproducing our results should have R installed locally on their machines. R can be installed on a number of different operating systems (see [Windows](https://cran.r-project.org/bin/windows/), [Mac](https://cran.r-project.org/bin/macosx/), and [Linux](https://cran.r-project.org/bin/linux/) for the installation instructions for these systems). We also recommend using the RStudio interface for R. The reader can [download RStudio](http://www.rstudio.com/ide) for free by following the instructions at the link. For non-R users, we recommend the [Hands-on Programming with R](https://rstudio-education.github.io/hopr/packages.html) for a brief overview of the software's functionality. Hereafter, we assume that the reader has an introductory understanding of the R programming language.
 
 In the code chunk below, we load the packages used to support our analysis. Note that the code of this and any of the code chunks can be hidden by clicking on the 'Hide' button to facilitate the navigation.
 
-```{r packages}
+```{r packages, cache=FALSE}
 if(require(checkpoint)==FALSE) install.packages("checkpoint") # check to see if checkpoint is installed; if not, install it
-library(checkpoint) # package used to facilitate the reproducibility of our work
+library(checkpoint)  # package used to facilitate the reproducibility of our work
 
 # a checkpoint of R packages on CRAN on August 28, 2020 to enable the reproduction of our work in the future
 checkpoint("2020-08-28")
@@ -64,13 +49,19 @@ checkpoint("2020-08-28")
 packages = c("tidyverse", "magrittr", "dataPreparation", "recipes", "doParallel", # data analysis
              "COVID19", # used to obtain county level (can be also used for country level)
              "DT", # for printing nice looking data in R Markdown
-             "zoo", "fpp2", #for time series analysis in R
-             "dtwclust", "factoextra") # for cluster analysis
+             "zoo", "fpp2", #for time series analysis in R,
+             "leaflet", "raster", "RColorBrewer", # plotting
+             "conflicted")
 newPackages = packages[!(packages %in% installed.packages()[,"Package"])]
 if(length(newPackages) > 0) install.packages(newPackages)
 
 # using the library command to load all packages; invisible used to avoid printing all packages and dependencies used
 invisible(lapply(packages, library, character.only = TRUE))
+
+conflict_prefer("select", "dplyr") #Preferring dplyr::select over any other package
+conflict_prefer("summarize", "dplyr") # similar to above but with dplyr::summarize
+conflict_prefer("filter", "dplyr")
+
 
 set.seed(2020)
 sInfo = sessionInfo()
@@ -108,10 +99,8 @@ counties %<>%
   group_by(id) %>% # grouping the data by the id column to make computations correct
   arrange(id, date) %>% # to ensure correct calculations
   mutate(day = wday(date, label = TRUE) %>% factor(ordered = F), # day of week
-         newCasesFromYesterday = c(NA, diff(confirmed)), # computing new daily cases
-         newDeathsFromYesterday = c(NA, diff(deaths)),  # computing new daily deaths
-         newCasesFromLastWeek = c(rep(NA,7), diff(confirmed, 7)), # week-over-week cases
-         newDeathsFromLastWeek = c(rep(NA,7), diff(deaths, 7)) ) # week-over-week deaths
+         newCases = c(NA, diff(confirmed)), # computing new daily cases
+         newDeaths = c(NA, diff(deaths)) )  # computing new daily deaths
 
 # manually identifying factor variables
 factorVars = c("school_closing", "workplace_closing", "cancel_events",
@@ -200,22 +189,15 @@ cat(paste0("After merging these four additional datasets with our counties objec
 
 ## Smoothing Alternatives for the Week-over-Week Confirmed Cases
 
-In the code chunk below, we have generated three smoothed variables for each of the *confirmed* and the *newCasesFromLastWeek* variables within the `county` data frame. The three smoothed variables are:  
-
-- A 7-day centered moving average for [variable];    
-- A 7-day centered moving median for [variable]; and  
-- A 14-day centered moving average for [variable];
+In the code chunk below, we smoothed the `newCases` variable within the `county` data frame using a 7-day moving average. Note that the 7-day moving average would also account for the daily patterns seen in the data (i.e., e.g., smaller number of reported cases over the weekend, etc.).  
 
 ```{r smoothing, results= "asis"}
 wowCases = counties %>% 
-  select(id, key_google_mobility, date, confirmed, newCasesFromLastWeek) %>%
+  select(id, key_google_mobility, date, confirmed, newCases) %>%
   arrange(id, date) %>% # to ensure correct calculations
-  mutate(confirmedMA7 = rollmean(confirmed, k = 7, fill = NA), # 7-day ma of cumulative cases
-         confirmedMM7 = rollmedian(confirmed, k = 7, fill = NA), # 7-day mm of cumulative cases 
-         confirmedMA14 = rollmean(confirmed, k = 14, fill = NA), # 14-day ma of cumulative cases 
-         newMA7 = rollmean(newCasesFromLastWeek, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
-         newMM7 = rollmedian(newCasesFromLastWeek, k = 7, fill = NA), # 7-day mm of new (adjusted) cases
-         newMA14 = rollmean(newCasesFromLastWeek, k = 14, fill = NA), # 7-day ma of new (adjusted) cases
+  mutate(newMA7 = rollmean(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
+         maxMA7 = max(newMA7, na.rm = T), # obtaining the max per county to scale data
+         scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE) # scaling data to a 0-1 scale by county
          )
 
 saveRDS(wowCases, paste0("../Data/wowCases-",Sys.Date(),".rds"))
@@ -227,62 +209,106 @@ write.csv(wowCases, paste0("../Data/wowCases-",Sys.Date(),".csv"),
 
 ```{r reshape}
 wowPrep = wowCases %>% 
-  select(id, date, newMM7) %>% 
-  pivot_wider(names_from = date, values_from = newMM7)
+  select(id, date, scaledNewMA7) %>% 
+  pivot_wider(names_from = date, values_from = scaledNewMA7)
 
 constantColumns = whichAreConstant(wowPrep, verbose = F) # identifying constant columns
 wowPrep %<>% select( -all_of(constantColumns) ) %>%  # speeds up clustering by dec length of series
   as.data.frame()
 row.names(wowPrep) = wowPrep[,1] # needed for tsclust
-wowPrep = wowPrep[,-1] %>% scale()
+wowPrep = wowPrep[,-1]
 ```
 
 
 # Time-Series Clustering
 
-## A Heirarchical DTW Clustering Approach Based on the Median Smoothed, Differenced Cases from Last Week {.tabset .tabset-fade .tabset-pills}
+## Determining Optimal Number of Clusters
 
+```{r optimalK, fig.show='hide'}
+nc = NbClust(wowPrep, distance = "euclidean", min.nc = 2, max.nc = 50, 
+             method = "kmeans", index = "all")
 
-### Clustering
-
-```{r dtwClustnewCasesFromLastWeek}
-workers = makeCluster(detectCores() - 2) # Create parallel workers
-invisible(clusterEvalQ(workers, library("dtwclust"))) # Preload dtwclust in each worker per vignette
-registerDoParallel(workers) # Register the backend
-
-dtwUniv = tsclust(wowPrep, type = "hierarchical", 
-                 k=2L, distance = "dtw",
-                 seed = 2020)
-
-cuts = foreach(i=2:100) %dopar% cutree(dtwUniv, i)
-
-stopCluster(workers) # Stop parallel workers
-registerDoSEQ() # Go back to sequential computation
-
-save(dtwUniv, cuts, file = "../Data/dtwUniv.RData")
-
-fviz_nbclust(wowPrep, FUN = hcut, method = "silhouette", k.max=50)
+kclus = nc$Best.partition %>% as.data.frame() %>% rename(., cluster_group = .) %>% rownames_to_column("County")
 ```
 
+```{r optimalKPrepped}
+clusters = wowPrep %>% 
+  rownames_to_column(var = "County") %>% 
+  pivot_longer(cols = starts_with("2020"), names_to = "Date") %>% 
+  inner_join(., kclus, by = "County") %>% 
+  mutate(cluster_group = as.factor(cluster_group))
 
-### Plot
+numDays = unique(clusters$Date) %>% length()
+table(clusters$cluster_group) / numDays
 
-```{r qplot}
-wowPrep %>%
-  as.matrix() %>%
-  gplots::heatmap.2 (
-    # dendrogram control
-    distfun = dtw_dist,
-    hclustfun = hclust,
-    dendrogram = "column",
-    Rowv = FALSE,
-    labRow = FALSE
-  )
+idClusters = clusters %>% select(c(County, cluster_group))
+colnames(idClusters) = c('id', 'cluster_group')
+idClusters %<>%  unique() #removing the duplicates due to different dates (we had that to ensure that the clustering was applied correctly)
+
+clusterCounties = counties %>% 
+  select(c(id, key_numeric, administrative_area_level_2, administrative_area_level_3,
+           countyType, percRepVotes, PercentSeniors, icuBedsPer10000Residents, povertyPercent)) %>% 
+  inner_join(., idClusters, by ='id') %>% 
+  unique()
+
+is_grouped_df(clusterCounties)
+saveRDS(clusterCounties, '../Data/clusterCounties.rds')
+
 ```
 
-<span style="color: blue;"> To be eventually continued!!!</span>
+### Visualizing the Clusters {.tabset .tabset-fade .tabset-pills}
+
+#### Interactive Map {-}
+```{r vizLeaflet, out.width='100%', height='30%', out.extra='keepaspectratio'}
+LeafletCounties = clusterCounties %>% ungroup() %>%
+  dplyr::select(administrative_area_level_2, administrative_area_level_3, cluster_group)
+colnames(LeafletCounties) = c('NAME_1', 'NAME_2', 'value')
+levels(LeafletCounties$value) = paste0('Cluster #', levels(LeafletCounties$value) )
+
+USA = getData(country = "usa", level = 2) # Get US polygon data from raster
+LeafletCounties = merge(USA, LeafletCounties, all.x = TRUE)
+
+myPal = colorFactor(RColorBrewer::brewer.pal(4, 'Dark2'),
+                    domain = LeafletCounties$value,
+                    na.color = "white")
+  
+leaflet() %>% 
+  setView(lng = -95.7547, lat = 40.33083, zoom = 4.1) %>% 
+  addTiles() %>% 
+  addPolygons(data = USA, stroke = FALSE, fillColor = ~myPal(LeafletCounties$value),
+              fillOpacity = 0.6, 
+              popup = paste("County:", LeafletCounties$NAME_2, '<br>',
+                            "Cluster #", LeafletCounties$value, '<br>')) %>% 
+  addLegend(position = "bottomleft", pal = myPal, values =  LeafletCounties$value, 
+            title = "Cluster #", opacity = 0.6)
+```
+
+#### Static Map {-}
+```{r vizClusters, eval=FALSE}
+pacman::p_load(choroplethr, choroplethrMaps) # ran these outside of Markdown since they resulted in many conflicts with existing packages (which can not be easily resolved since the clashing functions are used internally within the package)
+vizCounties = clusterCounties %>% ungroup() %>%
+  select(key_numeric, cluster_group)
+colnames(vizCounties) = c('region', 'value')
+levels(vizCounties$value) = paste0('Cluster #', levels(vizCounties$value) )
+
+county_choropleth(vizCounties, num_colors = 4) + theme(legend.position = "bottom") +
+  scale_color_brewer(type = "qual")
+```
+
+![](vizClusters-1.png)
+
+
 
 
 ---
+
+
+
+# MultiClass Classification
+
+```{r multiclass}
+df = readRDS("../Data/clusterCounties.rds")
+
+```
 
 # References {-}
