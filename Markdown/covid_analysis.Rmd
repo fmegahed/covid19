@@ -47,7 +47,7 @@ pacman::p_load(tidyverse, magrittr, dataPreparation, recipes, doParallel, psych,
                DT, stargazer, # used for having nicely formatted outputs in Markdown
                zoo, fpp2, dtwclust, factoextra, TSclust, proxy, NbClust, # for TS analysis and clustering 
                DataExplorer, scales, ggdendro, gridExtra, RColorBrewer, raster, GGally,# for plotting
-               leaflet, choroplethr, choroplethrMaps, # for mapping
+               leaflet, choroplethr, choroplethrMaps, rgeos, # for mapping
                caret, caretEnsemble, AUC, caTools, DMwR, MLmetrics, # ML packages
                rpart, nnet, naivebayes, # rpart, nnet, and multinom packages
                conflicted)
@@ -59,7 +59,8 @@ conflict_prefer("filter", "dplyr") # Preferring filter from dplyr
 conflict_prefer("dist", "stats") # Preferring dist from stats
 conflict_prefer("as.dist", "stats") # Preferring as.dist from stats
 
-set.seed(2020)
+
+set.seed(2020) # to assist with reproducibility
 sInfo = sessionInfo()
 ```
 
@@ -72,9 +73,8 @@ For our analysis, we fuse data from multiple sources. We describe the process of
 In this section, we utilize the [COVID19 package](https://cran.r-project.org/web/packages/COVID19/COVID19.pdf) to obtain the following information: [@Guidotti2020]    
 
   - Confirmed cases, recoveries and deaths;    
-  - policy information (e.g., transport closing, school closing, closing event, movement restrictions, testing policies, and contact tracing);  
-  - Population and standard geographic information for each county; and  
-  - Variables captured in both [Apple's](https://www.apple.com/covid19/mobility) and [Google's](https://www.google.com/covid19/mobility/index.html?hl=en) mobility reports.
+  - policy information (e.g., transport closing, school closing, closing event, movement restrictions, testing policies, and contact tracing);  and
+  - Population and standard geographic information for each county. 
 
 From this information, we have also computed the new daily and weekly confirmed cases/deaths per county. The data is stored in a tidy format, but can be expanded to a wide format using `pivot_wider()` from the [tidyverse](https://www.tidyverse.org/) package.
 
@@ -82,7 +82,7 @@ From this information, we have also computed the new daily and weekly confirmed 
 counties = covid19(country = "US", 
                    level = 3, # for county
                    start = "2020-03-01", # First Sunday in March
-                   end = "2020-09-19", # end Date 
+                   end = "2020-10-03", # end Date 
                    amr = NULL, # we are not using the apple mobility data for our analysis
                    gmr = NULL, # we are not using the Google mobility data for our analysis
                    wb = NULL, # world bank data not helpful for county level analysis
@@ -201,7 +201,7 @@ regionsCDC = data.frame(States = c('Connecticut', 'Maine', 'Massachusetts', 'New
                                    'Iowa', 'Kansas', 'Missouri', 'Nebraska', # Region G
                                    'Colorado', 'Montana', 'North Dakota', 'South Dakota',
                                    'Utah', 'Wyoming', # End of Region H
-                                   'Arizona', 'California', 'Hawai', 'Nevada', # Region I
+                                   'Arizona', 'California', 'Hawaii', 'Nevada', # Region I
                                    'Alaska', 'Idaho', 'Oregon', 'Washington' # Region J
                                    ),
                         regions = c(rep('Region.A', 7), rep('Region.B', 7), rep('Region.C', 4),
@@ -536,7 +536,12 @@ LeafletCounties = clusterCounties %>% ungroup() %>%
   dplyr::select(administrative_area_level_2, administrative_area_level_3, cluster_group, popDensity, povertyPercent)
 colnames(LeafletCounties) = c('NAME_1', 'NAME_2', 'value', 'popDensity', 'povertyPercent')
 
-USA = getData(country = "usa", level = 2) # Get US polygon data from raster
+USA = getData(country = "usa", level = 2)  %>% # Get US polygon data from raster
+  subset(!NAME_1 %in% c('Alaska', 'Hawaii')) # filtering to contiguous USA
+
+USA = gSimplify(USA, tol=0.1, topologyPreserve=TRUE) %>% # reducing its size
+  SpatialPolygonsDataFrame(., data = USA@data) # converting it to polygons data
+  
 LeafletCounties = merge(USA, LeafletCounties, all.x = TRUE) # merging them
 
 # using same color scheme as the static one
@@ -717,13 +722,13 @@ df = df %>% select(-c(cluster_group)) # removed since we created a reLeveled ver
 finalModel = multinom(clustReLeveled ~ ., data = df) # create model
 ```
 
-### Results {.tabset .tabset-fade .tabset-pills}
+### Results
 
-#### Logit Coefficients and their Significance {-}
+<center>
 ```{r multiModel2, results='asis'}
-stargazer(finalModel, type = 'html', p.auto = FALSE, out="../multiNomFinal/multi.htm") # tabulating Final Model 
+stargazer(finalModel, type = 'html', p.auto = FALSE, out="../Data/multi.html") # tabulating Final Model 
 ```
-
+</center>
 
 ### Validating Stargazer's Results {.tabset .tabset-fade .tabset-pills}
 
@@ -977,7 +982,7 @@ table(mapResults$match)
 ### Concluding Remarks
 In this R Markdown document, we have shown that our proposed two stage framework for modeling the smoothed and scaled time series of new daily cases can provide insights into the shape of the outbreak's time-series and some of its associated factors. Specifically, we have shown that:  
 
-- On a county-level, the time series of COVID-19 new daily cases can be clustered into one of three clusters: (a) `Cluster.3` contains 1363 counties, which have had a limited outbreak of COVID-19, (b) `Cluster.1` contains 1294 counties which have primarily experienced a second wave of COVID-19, and (c) `Cluster.2` contains 451 counties which have predominately experience a first wave of COVID-19. Note that our total number of counties are slightly less than the number of counties in the contiguous U.S. since we did not have complete data on the confirmed cases for those counties.  
+- On a county-level, the time series of COVID-19 new daily cases can be clustered into one of three clusters: (a) `Cluster.3` contains 1,476 counties, which have had a limited outbreak of COVID-19, (b) `Cluster.1` contains 1,214 counties which have primarily experienced a second wave of COVID-19, and (c) `Cluster.2` contains 418 counties which have predominately experience a first wave of COVID-19. Note that our total number of counties are slightly less than the number of counties in the contiguous U.S. since we did not have complete data on the confirmed cases for those counties.  
 
 - Using a multinomial regression model, we have shown/quantified the impact of the following factors: (a) county type (rural/underserved vs not), (b) population density, (c) percentage of the county' population voting Republican in the 2016 Presidential Elections, (d) the affiliation of the state's governor [mayor in case of the District of Columbia], (e) percentage of seniors in the county, (f) the number of ICU beds per 10,000 Residents within the county, (g) the CDC region's categorization of the state, and (h) percent of the county's resident population in poverty on the odds of being in Cluster 1 or Cluster 2 compared to the baseline of Cluster 3.
 
