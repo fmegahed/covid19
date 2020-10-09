@@ -233,6 +233,55 @@ glimpse(counties)
 ```
 
 
+## Exploratory Analysis {.tabset .tabset-fade .tabset-pills}
+In this section, we provide the results of some of the exploratory analysis that we have performed on the data obtained from the multiple sources. Given that a large part of this exploratory analysis was performed outside of R (using Tableau), we do not provide any code for the visualizations. Note that the base code for the visualizations performed in R can be obtained from the [following GitHub Repo](https://github.com/fmegahed/covid19/tree/master/Scripts).
+
+### A Sample of Cumulative Cases {-}
+```{r cumulativeCases, echo=FALSE,  out.width = '100%'}
+knitr::include_graphics("../Figures/SampleCounties02.png")
+```
+
+### A Sample of New Cases {-}
+```{r newDailyCasesSample, echo=FALSE,  out.width = '100%'}
+knitr::include_graphics("../Figures/motivationPlot.png")
+```
+
+### CDC Regions {-}
+```{r cdcRegionsPlot, echo=FALSE,  out.width = '100%'}
+knitr::include_graphics("../Figures/cdcRegionsV3.png")
+```
+
+### County Classification {-}
+```{r countyClassification, echo=FALSE,  out.width = '100%'}
+knitr::include_graphics("../Figures/CountyClassification.png")
+```
+
+### Population Density {-}
+```{r populationDen, echo=FALSE,  out.width = '100%'}
+knitr::include_graphics("../Figures/PopulationDensity.png")
+```
+
+### Poverty Percentage {-}
+```{r povertyPerc, echo=FALSE,  out.width = '100%'}
+knitr::include_graphics("../Figures/PovertyPercentage.png")
+```
+
+### 2016 Presidential Election County Votes {-}
+```{r elections, echo=FALSE, out.width='100%'}
+knitr::include_graphics("../Figures/2016PresidentialElectionVotes.png")
+```
+
+### Governor's Party {-}
+```{r govParty, echo=FALSE, out.width='100%'}
+knitr::include_graphics("../Figures/GovernorParty.png")
+```
+
+### Percent Seniors {-}
+```{r healthData, echo=FALSE, out.width='100%'}
+knitr::include_graphics("../Figures/HealthData.png")
+```
+
+
 # Data Preparation
 
 To prepare the `counties` data for time-series clustering, we have made the following transformations:  
@@ -715,9 +764,10 @@ Based on the results from both the cross validation and holdout set, we will use
 ```{r multiModel1}
 df = multiClassData %>% select(-c(id, key_numeric, administrative_area_level_2, administrative_area_level_3)) # removing these variables
 
-df$cluster_group %<>%  recode(C1 = '2nd.Wave', C2 = '1st.Wave', C3 = 'Other') # recoding values
+df$cluster_group %<>%  recode(C2 = '1st.Wave', C1 = '2nd.Wave', C3 = 'Other') %>% # recoding values
+  factor(levels = c('1st.Wave', '2nd.Wave', 'Other'))
 # setting the reference level to category with max frequency
-df$clustReLeveled = relevel(df$cluster_group, ref = maxCat(df$cluster_group) ) #(w/ data ending in 2020-09-19 --> = `no wave` group i.e. C3)
+df$clustReLeveled = relevel(df$cluster_group, ref = maxCat(df$cluster_group) ) #(w/ data ending in 2020-10-03 --> = `no wave` group i.e. C3)
 df = df %>% select(-c(cluster_group)) # removed since we created a reLeveled version and stored it in a diff va
 finalModel = multinom(clustReLeveled ~ ., data = df) # create model
 ```
@@ -726,7 +776,7 @@ finalModel = multinom(clustReLeveled ~ ., data = df) # create model
 
 <center>
 ```{r multiModel2, results='asis'}
-stargazer(finalModel, type = 'html', p.auto = FALSE, out="../Data/multi.html") # tabulating Final Model 
+stargazer(finalModel, type = 'html', p.auto = FALSE, out="../Data/multi.html", single.row = TRUE) # tabulating the results
 ```
 </center>
 
@@ -735,13 +785,13 @@ stargazer(finalModel, type = 'html', p.auto = FALSE, out="../Data/multi.html") #
 #### Summary {-}
 
 ```{r multiSummary}
-summary(finalModel) # print a summary of the model 
+summary(finalModel) # print the model's summary information using base R 
 ```
 
 #### z-Score {-}
 ```{r zScore, results='asis', out.width='50%'}
-z = summary(finalModel)$coefficients / summary(finalModel)$standard.errors # computing the z-score
-round(z, 3) %>% as.data.frame() %>% rmarkdown::paged_table() # printing it nicely  
+z = summary(finalModel)$coefficients / summary(finalModel)$standard.errors # computing z-scores
+round(z, 3) %>% as.data.frame() %>% rmarkdown::paged_table() # printing it nicely with paged_table() 
 ```
 
 
@@ -757,9 +807,9 @@ round(p, 3) %>% as.data.frame() %>% rmarkdown::paged_table() # printing it nicel
 #### Data Prep {-}
 
 ```{r multiVizDataPrep}
-predictedProbs = fitted(finalModel) # computing predicted probabilities for each of three cluster outcome levels
+predictedProbs = fitted(finalModel) # computing predicted probabilities for each of the three cluster outcome levels
 
-multiClassResults = cbind(na.omit(multiClassData), predictedProbs) %>%  # column binding the predicted probs to multiClassData
+multiClassResults = cbind(na.omit(multiClassData), predictedProbs) %>%  # column binding the objects predictedProbs with multiClassData
   select(-c(id, key_numeric, administrative_area_level_2, administrative_area_level_3, cluster_group)) # dropping id type columns
 
 # DF for Cat Data
@@ -785,7 +835,7 @@ resSummary %>% rmarkdown::paged_table()
 #### Probabilities vs Population Density {-}
 
 ```{r probVspopDensity}
-ggplot(resSummary, aes(x = popDensity, y = probability, color = variable)) + # setting x-axis, y-axis and color 
+ggplot(resSummary, aes(x = popDensity, y = probability, color = variable)) + # setting the x-axis, y-axis, and color 
   geom_line() + facet_grid(variable ~ .) +
   scale_color_manual(name = "Predicted Cluster", values = colorPal) + 
   scale_y_continuous(limits = c(0,1)) + # color and y-axis limits
@@ -796,7 +846,7 @@ ggplot(resSummary, aes(x = popDensity, y = probability, color = variable)) + # s
 #### Probabilities vs % Republican Votes {-}
 
 ```{r probVsRep}
-ggplot(resSummary, aes(x = percRepVotes, y = probability, color = variable)) + # setting x-axis, y-axis and color 
+ggplot(resSummary, aes(x = percRepVotes, y = probability, color = variable)) + # setting the x-axis, y-axis, and color 
   geom_line() + facet_grid(variable ~ .) +
   scale_color_manual(name = "Predicted Cluster", values = colorPal) + 
   scale_y_continuous(limits = c(0,1)) + # color and y-axis limits
@@ -809,7 +859,7 @@ ggplot(resSummary, aes(x = percRepVotes, y = probability, color = variable)) + #
 #### Probabilities vs % Seniors {-}
 
 ```{r probVsSeniors}
-ggplot(resSummary, aes(x = PercentSeniors, y = probability, color = variable)) + # setting x-axis, y-axis and color 
+ggplot(resSummary, aes(x = PercentSeniors, y = probability, color = variable)) + # setting the x-axis, y-axis, and color 
   geom_line() + facet_grid(variable ~ .) +
   scale_color_manual(name = "Predicted Cluster", values = colorPal) + 
   scale_y_continuous(limits = c(0,1)) + # color and y-axis limits
@@ -822,7 +872,7 @@ ggplot(resSummary, aes(x = PercentSeniors, y = probability, color = variable)) +
 #### Probabilities vs # ICU Beds {-}
 
 ```{r probVsicuBeds}
-ggplot(resSummary, aes(x = icuBedsPer10000Residents, y = probability, color = variable)) + # setting x-axis, y-axis and color 
+ggplot(resSummary, aes(x = icuBedsPer10000Residents, y = probability, color = variable)) + # setting the x-axis, y-axis, and color 
   geom_line() + facet_grid(variable ~ .) +
   scale_color_manual(name = "Predicted Cluster", values = colorPal) + 
   scale_y_continuous(limits = c(0,1)) + # color and y-axis limits
@@ -834,7 +884,7 @@ ggplot(resSummary, aes(x = icuBedsPer10000Residents, y = probability, color = va
 #### Probabilities vs Poverty {-}
 
 ```{r probVsPoverty}
-ggplot(resSummary, aes(x = povertyPercent, y = probability, color = variable)) + # setting x-axis, y-axis and color 
+ggplot(resSummary, aes(x = povertyPercent, y = probability, color = variable)) + # setting the x-axis, y-axis, and color 
   geom_line() + facet_grid(variable ~ .) +
   scale_color_manual(name = "Predicted Cluster", values = colorPal) + 
   scale_y_continuous(limits = c(0,1)) + # color and y-axis limits
@@ -845,8 +895,8 @@ ggplot(resSummary, aes(x = povertyPercent, y = probability, color = variable)) +
 #### Predicted Clusters by Regions {-}
 
 ```{r, clusterByRegions}
-multiClassCat %>% select(c(LargestProbCluster, regions)) %>% # selecting two columns of interest
-  group_by(LargestProbCluster, regions) %>% count() %>% # counting occurrences of combinations of those columns
+multiClassCat %>% select(c(LargestProbCluster, regions)) %>% # selecting the two columns of interest
+  group_by(LargestProbCluster, regions) %>% count() %>% # counting occurrences of combinations of these columns
   ggplot(aes(x = factor(regions, levels = paste0(rep('Region.', 10), head(LETTERS, 10))),
              y = n, fill = LargestProbCluster, group = LargestProbCluster)) +
   geom_bar(stat="identity")  + 
@@ -859,8 +909,8 @@ multiClassCat %>% select(c(LargestProbCluster, regions)) %>% # selecting two col
 #### Predicted Clusters by Governor's Party {-}
 
 ```{r, clusterByGovernor}
-multiClassCat %>% select(c(LargestProbCluster, governorsParty)) %>% # selecting two columns of interest
-  group_by(LargestProbCluster, governorsParty) %>% count() %>% # counting occurrences of combinations of those columns
+multiClassCat %>% select(c(LargestProbCluster, governorsParty)) %>% # selecting the two columns of interest
+  group_by(LargestProbCluster, governorsParty) %>% count() %>% # counting occurrences of combinations of these columns
   ggplot(aes(x = governorsParty, y = n, fill = LargestProbCluster, group = LargestProbCluster)) +
   geom_bar(stat="identity")  + 
   geom_text(aes(label = n), position="stack", vjust= 0, hjust = 1.25, col="black", size=2) +
@@ -872,8 +922,8 @@ multiClassCat %>% select(c(LargestProbCluster, governorsParty)) %>% # selecting 
 #### Predicted Clusters by County Type {-}
 
 ```{r, clusterBycountyType}
-multiClassCat %>% select(c(LargestProbCluster, countyType)) %>% # selecting two columns of interest
-  group_by(LargestProbCluster, countyType) %>% count() %>% # counting occurrences of combinations of those columns
+multiClassCat %>% select(c(LargestProbCluster, countyType)) %>% # selecting the two columns of interest
+  group_by(LargestProbCluster, countyType) %>% count() %>% # counting occurrences of combinations of these columns
   ggplot(aes(x = countyType, y = n, fill = LargestProbCluster, group = LargestProbCluster)) +
   geom_bar(stat="identity")  + 
   geom_text(aes(label = n), position="stack", vjust= 0, hjust = 1.25, col="black", size=2) +
@@ -889,7 +939,8 @@ In the chunk below, we answer the question which counties were correctly predict
 ```{r resMapProb, results='asis', out.width = '100%'}
 mapResults = cbind(na.omit(multiClassData), predictedProbs) # we need the ids for this 
 
-mapResults$cluster_group %<>%  recode(C1 = '2nd.Wave', C2 = '1st.Wave', C3 = 'Other') # making names more informative
+mapResults$cluster_group %<>%  recode(C1 = '2nd.Wave', C2 = '1st.Wave', C3 = 'Other') %>% # making names more informative
+  factor(levels = c('1st.Wave', '2nd.Wave', 'Other')) # making the levels appear in the order of outbreak
 
 # For each county, we find the cluster with largest prob from the multinomial model's results
 mapResults$LargestProbCluster =  colnames(mapResults[, 14:16])[apply(mapResults[, 14:16], 1, which.max)] 
@@ -930,6 +981,8 @@ In the chunk below, we answer the question which counties were correctly predict
 mapResults = cbind(na.omit(multiClassData), predictedProbs) %>% 
    mutate(cluster_group = recode(cluster_group, C1 = '2nd.Wave', C2 = '1st.Wave', C3 = 'Other'))
 
+mapResults$cluster_group %<>% factor(levels = c('1st.Wave', '2nd.Wave', 'Other')) # making the levels appear in the order of outbreak
+
 mapResults$LargestProbCluster =  colnames(mapResults[, 14:16])[apply(mapResults[, 14:16], 1, which.max)] 
 
 mapResults$match = ifelse(mapResults$cluster_group == mapResults$LargestProbCluster, 'Yes', 'No') %>% as.factor()
@@ -952,6 +1005,9 @@ In the code chunk below, we compute the percentage of correctly matched results 
 #Repeating first three steps from previous chunks since we have overwrote the object
 mapResults = cbind(na.omit(multiClassData), predictedProbs) %>% 
    mutate(cluster_group = recode(cluster_group, C1 = '2nd.Wave', C2 = '1st.Wave', C3 = 'Other'))
+
+mapResults$cluster_group %<>% factor(levels = c('1st.Wave', '2nd.Wave', 'Other')) 
+
 mapResults$LargestProbCluster =  colnames(mapResults[, 14:16])[apply(mapResults[, 14:16], 1, which.max)] 
 mapResults$match = ifelse(mapResults$cluster_group == mapResults$LargestProbCluster, 1, 0)
 
@@ -967,9 +1023,9 @@ mapResults %>% group_by(administrative_area_level_2) %>%
 In the code chunk below, we summarize the matched groups by cluster. Recall that `cluster_group` denotes the cluster assigned to a given county from the $k$-means clustering approach and the `largestProbCluster` denotes the cluster prediction from the multinomial model. 
 
 ```{r overallByCluster}
-mapResults %>% group_by(cluster_group, LargestProbCluster) %>% summarise(n = n()) %>% 
-  rmarkdown::paged_table()
-
+mapResults %>% group_by(cluster_group, LargestProbCluster) %>% 
+  summarise(n = n()) %>% 
+  rmarkdown::paged_table() 
 ```
 
 We also tabulate the total of correctly matched results (i.e., cluster results were correctly predicted by the multinomial regression model). Note that `1` corresponds to a correct match and `0` corresponds to a mismatch. 
@@ -982,7 +1038,7 @@ table(mapResults$match)
 ### Concluding Remarks
 In this R Markdown document, we have shown that our proposed two stage framework for modeling the smoothed and scaled time series of new daily cases can provide insights into the shape of the outbreak's time-series and some of its associated factors. Specifically, we have shown that:  
 
-- On a county-level, the time series of COVID-19 new daily cases can be clustered into one of three clusters: (a) `Cluster.3` contains 1,476 counties, which have had a limited outbreak of COVID-19, (b) `Cluster.1` contains 1,214 counties which have primarily experienced a second wave of COVID-19, and (c) `Cluster.2` contains 418 counties which have predominately experience a first wave of COVID-19. Note that our total number of counties are slightly less than the number of counties in the contiguous U.S. since we did not have complete data on the confirmed cases for those counties.  
+- On a county-level, the time series of COVID-19 new daily cases can be clustered into one of three clusters: (a) `Cluster 3 (baseline)` contains 1,476 counties, which have had a limited outbreak of COVID-19, (b) `Cluster 1` contains 1,214 counties which have primarily experienced a second wave of COVID-19, and (c) `Cluster 2` contains 418 counties which have predominately experience a first wave of COVID-19. Note that our total number of counties are slightly less than the number of counties in the contiguous U.S. since we did not have complete data on the confirmed cases for those counties.  
 
 - Using a multinomial regression model, we have shown/quantified the impact of the following factors: (a) county type (rural/underserved vs not), (b) population density, (c) percentage of the county' population voting Republican in the 2016 Presidential Elections, (d) the affiliation of the state's governor [mayor in case of the District of Columbia], (e) percentage of seniors in the county, (f) the number of ICU beds per 10,000 Residents within the county, (g) the CDC region's categorization of the state, and (h) percent of the county's resident population in poverty on the odds of being in Cluster 1 or Cluster 2 compared to the baseline of Cluster 3.
 
