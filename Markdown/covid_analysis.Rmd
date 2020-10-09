@@ -1035,7 +1035,7 @@ table(mapResults$match)
 ```
 
 
-### Concluding Remarks
+# Concluding Remarks
 In this R Markdown document, we have shown that our proposed two stage framework for modeling the smoothed and scaled time series of new daily cases can provide insights into the shape of the outbreak's time-series and some of its associated factors. Specifically, we have shown that:  
 
 - On a county-level, the time series of COVID-19 new daily cases can be clustered into one of three clusters: (a) `Cluster 3 (baseline)` contains 1,476 counties, which have had a limited outbreak of COVID-19, (b) `Cluster 1` contains 1,214 counties which have primarily experienced a second wave of COVID-19, and (c) `Cluster 2` contains 418 counties which have predominately experience a first wave of COVID-19. Note that our total number of counties are slightly less than the number of counties in the contiguous U.S. since we did not have complete data on the confirmed cases for those counties.  
