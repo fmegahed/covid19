@@ -689,7 +689,7 @@ leaflet(height=500) %>% # initializing the leaflet map
 From both maps, some regional clustering of the counties can be seen (an interesting result since the clustering approach was only based on the scaled and smoothed time series of newly reported daily cases per county). 
 
 ### Static Map {-}
-```{r staticCluster, fig.show='last'}
+```{r staticCluster, fig.show='first', out.height='384px', out.width='683px', fig.align = 'center'}
 # Here we capitalized on the beautiful d3 maps (from the r2d3maps package) and the albersusa package for
 # map projection to create a d3map and then capitalized on orca() from plotly to convert it into a
 # well designed static plot
@@ -857,9 +857,6 @@ finalModel = multinom(clustReLeveled ~ ., data = df) # create model
 stargazer(finalModel, type = 'html', p.auto = FALSE, out="../Data/multi.html", single.row = TRUE) # tabulating the results
 ```
 </center>
-```{r multiModel2latex, echo=FALSE}
-stargazer(finalModel, type = 'latex', p.auto = FALSE, out="../Data/multi.tex", single.row = TRUE) # tabulating the results
-```
 
 
 ### Validating Stargazer's Results {.tabset .tabset-fade .tabset-pills}
@@ -1046,7 +1043,7 @@ leaflet(height=500) %>% # initializing the leaflet map
   addTiles() %>% # adding the default tiles
   addPolygons(data = cty_sf, stroke = FALSE, fillColor = ~myPal(cty_sf_joined$match), # adding the data
               weight = 2, opacity = 1, color = "white", dashArray = "3", fillOpacity = 0.7, # adding color specs
-              popup = paste("County:", cty_sf_joined$NAME_2, '<br>', 
+              popup = paste("County:", cty_sf_joined$name, '<br>', 
                             "Cluster #:", cty_sf_joined$cluster_group, '<br>',
                             'Cluster Pred from Multinomial:', cty_sf_joined$LargestProbCluster, '<br>', 
                             "Population Density:", round(cty_sf_joined$popDensity, 1), '<br>',
@@ -1060,8 +1057,10 @@ leaflet(height=500) %>% # initializing the leaflet map
 
 In the chunk below, we answer the question which counties were correctly predicted by the multinomial regression model (i.e., the classification results from the multinomial regression model matched the cluster assignment from the $k$-means clustering algorithm). As opposed to the previous map, this is a static map that can be easily exported into traditional presentations and written reports.
 
-```{r staticMapResults}
-d3map2 = d3_map(shape = cty_sf_joined, projection = "Albers", height = 500) %>%
+```{r staticMapResults, fig.show='first', out.height='384px', out.width='683px', fig.align = 'center'}
+cty_sf_joined %<>% filter(!state %in% c('Alaska', 'Hawaii')) 
+
+d3map2 = d3_map(shape = cty_sf_joined, projection = "Albers") %>%
   add_discrete_scale(var = "match", palette = "Paired") %>%
   add_legend(title = "Cluster #")
 
