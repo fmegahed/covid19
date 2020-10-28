@@ -27,3 +27,5 @@ vignettes/*.pdf
 *.csv
 
 Data/dtwUniv.RData
+Markdown/covid_analysis_cache/
+Markdown/covid_analysis_files/

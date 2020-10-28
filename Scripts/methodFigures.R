@@ -5,7 +5,7 @@ setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # automatically set 
 pacman::p_load(tidyverse, COVID19, magrittr, lubridate, fpp2, zoo) # loading required packages
 
 # National Data
-us = covid19(country = 'US', level = 1, start = '2020-03-01', end = '2020-10-03')
+us = covid19(country = 'US', level = 1, start = '2020-03-01', end = '2020-10-17')
 us %<>% select(id, key_google_mobility, date, confirmed) %>% 
   mutate(newCases = c(NA, diff(confirmed)),
          newMA7 = rollmeanr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
@@ -13,7 +13,8 @@ us %<>% select(id, key_google_mobility, date, confirmed) %>%
          scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE))
 
 # Counties Data
-counties = covid19(country = 'US', level = 3, start = '2020-03-01', end = '2020-10-03')
+counties = covid19(country = 'US', level = 3, start = '2020-03-01', end = '2020-10-17',
+                   raw = FALSE)
 
 counties %<>% select(id, key_google_mobility, date, confirmed) %>% 
   mutate(newCases = c(NA, diff(confirmed)),
@@ -31,7 +32,17 @@ df = rbind(us, df)
 df$key_google_mobility %<>% recode(US = 'Aggregate for the Entire US') 
 
 
-# Facet Wrap Plot
+# Facet Wrap Plot: nonScaledMotivationPlot
+df %>% ggplot(aes(x = date, y = newMA7, group = id, color = key_google_mobility)) +
+  geom_line(size = 1.5) +
+  facet_wrap(~ key_google_mobility, scales = 'free_y', ncol = 2) + 
+  theme_bw(base_size = 24) + 
+  theme(legend.position = 'none') + 
+  labs(color = '', x = 'Month', y = 'New Cases By County') +
+  scale_color_brewer(type = 'qual', palette = 'Paired')
+
+
+# Facet Wrap Plot: motivationPlot
 df %>% ggplot(aes(x = date, y = scaledNewMA7, group = id, color = key_google_mobility)) +
   geom_line(size = 1.5) +
   facet_wrap(~ key_google_mobility, scales = 'free_y', ncol = 2) + 
@@ -40,6 +51,18 @@ df %>% ggplot(aes(x = date, y = scaledNewMA7, group = id, color = key_google_mob
   labs(color = '', x = 'Month', y = 'New Cases By County') +
   scale_color_brewer(type = 'qual', palette = 'Paired')
 
+
+# SampleCountiesOct17: Plot
+indexesForPlot = unique(counties$key_google_mobility) %>% sample(9)
+
+counties %>% filter(key_google_mobility %in% indexesForPlot) %>% 
+  ggplot(aes(x = date, y = confirmed, group = id, color = key_google_mobility)) +
+  geom_line(size = 1.5) +
+  facet_wrap(~ key_google_mobility, scales = 'free_y', ncol = 3) + 
+  theme_bw(base_size = 24) + 
+  theme(legend.position = 'none') + 
+  labs(color = '', x = 'Month', y = 'Cumulative Confirmed Cases By County') +
+  scale_color_brewer(type = 'qual', palette = 'Paired')
 
 
 # Single New Cases Plot

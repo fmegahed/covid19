@@ -40,6 +40,12 @@ In the code chunk below, we load the packages used to support our analysis. Note
 
 ```{r packages, cache=FALSE}
 if(require(pacman)==FALSE) install.packages("pacman") # check to see if the pacman package is installed; if not install it
+if(require(devtools)==FALSE) install.packages("devtools") # check to see if the devtools package is installed; if not install it
+
+# to check and install if these packages are not found locally on machine
+if(require(albersusa)==FALSE) devtools::install_github('hrbrmstr/albersusa') #install package if needed
+if(require(albersusa)==FALSE) devtools::install_github('dreamRs/r2d3maps') #install package if needed
+
 
 # check if packages are not installed; if yes, install missing packages
 pacman::p_load(tidyverse, magrittr, dataPreparation, recipes, doParallel, psych, skimr, VIM, reshape2, # for data analysis
@@ -47,12 +53,13 @@ pacman::p_load(tidyverse, magrittr, dataPreparation, recipes, doParallel, psych,
                DT, stargazer, # used for having nicely formatted outputs in Markdown
                zoo, fpp2, dtwclust, factoextra, TSclust, proxy, NbClust, # for TS analysis and clustering 
                DataExplorer, scales, ggdendro, gridExtra, RColorBrewer, raster, GGally,# for plotting
-               leaflet, choroplethr, choroplethrMaps, rgeos, # for mapping
+               leaflet, webshot, albersusa, tigris, plotly, r2d3maps,# for mapping
                caret, caretEnsemble, AUC, caTools, DMwR, MLmetrics, # ML packages
                rpart, nnet, naivebayes, # rpart, nnet, and multinom packages
                conflicted)
 
 # Handling conflicting function names from packages
+conflict_prefer('combine', 'dplyr') # Preferring dplyr::combine over any other package
 conflict_prefer('select', "dplyr") #Preferring dplyr::select over any other package
 conflict_prefer("summarize", "dplyr") # similar to above but with dplyr::summarize
 conflict_prefer("filter", "dplyr") # Preferring filter from dplyr
@@ -82,7 +89,8 @@ From this information, we have also computed the new daily and weekly confirmed 
 counties = covid19(country = "US", 
                    level = 3, # for county
                    start = "2020-03-01", # First Sunday in March
-                   end = "2020-10-03", # end Date 
+                   end = "2020-10-24", # end Date 
+                   raw = FALSE, # to ensure that all counties have the same grid of dates
                    amr = NULL, # we are not using the apple mobility data for our analysis
                    gmr = NULL, # we are not using the Google mobility data for our analysis
                    wb = NULL, # world bank data not helpful for county level analysis
@@ -178,7 +186,7 @@ counties$governorsParty %<>% replace_na("Democratic") # 203 NAs are for District
 
 
 # [E] Kaiser Health News Data on the County Level
-hospitals = read.csv("../Data/data-FPBfZ.csv") %>% # downloaded from KHN on 2020-09-01 (9:55 am EDT)
+hospitals = read.csv("../Data/data-FPBfZ.csv") %>% # downloaded from KHN on 2020-10-26 (~9:30 pm EDT)
   transmute(State = State, # keeping the State Variable | transmute drops variables that are not in call
             County = County, # keeping the County Variable
             PercentSeniors = Percent.of.Population.Aged.60., # Shortening Original Variable Name
@@ -238,13 +246,9 @@ In this section, we provide the results of some of the exploratory analysis that
 
 ### A Sample of Cumulative Cases {-}
 ```{r cumulativeCases, echo=FALSE,  out.width = '100%'}
-knitr::include_graphics("../Figures/SampleCounties02.png")
+knitr::include_graphics("../Figures/SampleCountiesOct17.png")
 ```
 
-### A Sample of New Cases {-}
-```{r newDailyCasesSample, echo=FALSE,  out.width = '100%'}
-knitr::include_graphics("../Figures/motivationPlot.png")
-```
 
 ### CDC Regions {-}
 ```{r cdcRegionsPlot, echo=FALSE,  out.width = '100%'}
@@ -310,7 +314,6 @@ clusteringPrep %<>% select(-all_of(constantColumns) ) %>%  # speeds up clusterin
 row.names(clusteringPrep) = clusteringPrep[,1] # needed for tsclust
 clusteringPrep = clusteringPrep[,-1] # dropping the id column since it is now row.name
 ```
-
 
 
 # Time-Series Clustering
@@ -538,7 +541,6 @@ grid.arrange(gp2, gp1, ncol=2, widths=c(4,2))
 Based on the preliminary analysis, the Euclidean distance seems appropriate for our analysis. Therefore, in our full analysis, we will use the Euclidean distance with the $k$-means approach as explained earlier in this section. 
 
 
-
 ## Clustering Contiguous U.S. Counties
 
 ```{r usClust, fig.show='hide'}
@@ -547,7 +549,7 @@ clusteringPrep %<>% select(-c(key_google_mobility))  # removing this variable so
 nc = NbClust(clusteringPrep, distance = "euclidean", # euclidean distance
              min.nc = 2, max.nc = 50, # searching for optimal k between k=2 and k=50
              method = "kmeans", # using the k-means method
-             index = "all") # using 26 of the 30 indices in the package (we left the 4 that were computationally intensive)
+             index = "all") # using 26 of the 30 indices in the package
 
 kclus = nc$Best.partition %>% as.data.frame() %>% #obtaining the best partition/ cluster assignment for optimal k
   rename(., cluster_group = .) %>% rownames_to_column("County") 
@@ -574,24 +576,99 @@ clusterCounties = counties %>%
 saveRDS(clusterCounties, '../Data/clusterCounties.rds')
 ```
 
+
 ## Visualizing the Clusters {.tabset .tabset-fade .tabset-pills}
 
-In this subsection, we have created two chloropleth maps to visualize the clusters. The first map provides some interactivity features, where the reader can click on a given county to show: (a) county name, (b) assigned cluster, (c) population density, and (d) percentage of residents in poverty. In the second map, we provide a static version of the same choropleth (i.e., only showing the cluster assignment for a given county). Both maps can be accessed by toggling through the tabsets below.
+In this subsection, we provide four plots:
+
+  - The 7-day moving averages of daily confirmed cases for `r unique(clusterCounties$cluster_group) + 4` counties as well the aggregated numbers for the entire US;  
+  - A [0,1] scaled version of the previous plot;  
+  - An interactive chloropleth maps to visualize the spatial distribution of the clusters, where the reader can click on a given county to show: (a) county name, (b) assigned cluster, (c) population density, and (d) percentage of residents in poverty; and
+  - A static, more suitable for the print publication, choropleth map. Here, we only show the cluster assignment for a given county. 
+  
+All four plots can be accessed by toggling through the tabsets below.
+
+
+### Sample Time-Series: Non-Scaled {-}
+
+```{r sampleTSForClusters1}
+# Obtaining the counties with max population density per cluster in addition to three counties were the authors
+# resided (as a sanity check) and a rural county in the UP in MI (also a sanity check)
+PopDensities = clusterCounties %>% ungroup() %>% group_by(cluster_group) %>% 
+  summarise(pd = max(popDensity, na.rm = T))
+
+indices = c(which(clusterCounties$popDensity %in% PopDensities$pd),
+            which(clusterCounties$key_numeric%in% c(1081, 17119, 39017, 26135)) )
+
+# creating a lookup data frame
+lookupDF = clusterCounties[indices, c('id', 'cluster_group')]
+
+# Obtaining national data
+usAggregate = covid19(country = 'US', level = 1, 
+                      start = '2020-03-01', end = '2020-10-24',
+                      verbose = FALSE)
+usAggregate %<>% select(id, key_google_mobility, date, confirmed) %>% 
+  mutate(newCases = c(NA, diff(confirmed)),
+         newMA7 = rollmeanr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
+         maxMA7 = max(newMA7, na.rm = T), # obtaining the max per county to scale data
+         scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE))
+
+sampleCounties = counties %>% # from the counties
+  filter(id %in% lookupDF$id) %>%  # only the 8 counties of interest
+  select(id, date, key_google_mobility, newCases) %>% # selecting minimal amount of cols for visual inspection
+  arrange(id, date) %>% # arranged to ensure correct calculations
+  mutate(newMA7 = rollmeanr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
+         maxMA7 = max(newMA7, na.rm = T), # obtaining the max per county to scale data
+         scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE) )
+
+# Joining the US Data with the Sample Counties
+sampleCountiesPlusUS = rbind(usAggregate, sampleCounties)
+sampleCountiesPlusUS = left_join(sampleCountiesPlusUS, lookupDF, by = 'id')
+sampleCountiesPlusUS$cluster_group %<>% as.character() %>% replace_na('Not Clustered')
+sampleCountiesPlusUS$key_google_mobility %<>% recode(US = 'Aggregate for the Entire US') 
+
+colorPal =  brewer.pal(n= unique(sampleCountiesPlusUS$cluster_group) %>% length(), 'Set2')
+names(colorPal) = levels(sampleCountiesPlusUS$cluster_group)
+
+
+# Facet Wrap Plot: nonScaledMotivationPlot
+sampleCountiesPlusUS %>% ggplot(aes(x = date, y = newMA7, group = id, color = cluster_group)) +
+  geom_line(size = 1) +
+  facet_wrap(~ key_google_mobility, scales = 'free_y', ncol = 3) + 
+  theme_bw(base_size = 11) + 
+  theme(legend.position = 'none') + 
+  labs(color = '', x = 'Month', y = 'New Cases By County') +
+  scale_color_brewer(type = 'qual', palette = 'Set2')
+```
+
+### Sample Time-Series: Scaled {-}
+
+```{r sampleTSForClusters2}
+sampleCountiesPlusUS %>% ggplot(aes(x = date, y = scaledNewMA7, group = id, color = cluster_group)) +
+  geom_line(size = 1) +
+  facet_wrap(~ key_google_mobility, scales = 'free_y', ncol = 3) + 
+  theme_bw(base_size = 11) + 
+  theme(legend.position = 'none') + 
+  labs(color = '', x = 'Month', y = 'New Cases By County') +
+  scale_color_brewer(type = 'qual', palette = 'Set2')
+
+```
+
 
 ### Interactive Map {-}
 ```{r leaflet, out.width = '100%'}
+cty_sf = counties_sf("longlat") %>% # from albersusa package
+  filter(!state %in% c('Alaska', 'Hawaii'))
+
 # ungrouping clusterCounties and selecting just the two variables needed for the clustering
 LeafletCounties = clusterCounties %>% ungroup() %>%
-  dplyr::select(administrative_area_level_2, administrative_area_level_3, cluster_group, popDensity, povertyPercent)
-colnames(LeafletCounties) = c('NAME_1', 'NAME_2', 'value', 'popDensity', 'povertyPercent')
+  dplyr::select(key_numeric, administrative_area_level_2, administrative_area_level_3, cluster_group, popDensity, povertyPercent)
+colnames(LeafletCounties) = c('key_numeric', 'NAME_1', 'NAME_2', 'value', 'popDensity', 'povertyPercent')
 
-USA = getData(country = "usa", level = 2)  %>% # Get US polygon data from raster
-  subset(!NAME_1 %in% c('Alaska', 'Hawaii')) # filtering to contiguous USA
+# Converting the key_numeric to a proper FIPS_Code and then to a factor variable
+LeafletCounties$key_numeric %<>% str_pad(width = 5, side = 'left', pad = '0') %>% as.factor()
 
-USA = gSimplify(USA, tol=0.1, topologyPreserve=TRUE) %>% # reducing its size
-  SpatialPolygonsDataFrame(., data = USA@data) # converting it to polygons data
-  
-LeafletCounties = merge(USA, LeafletCounties, all.x = TRUE) # merging them
+LeafletCounties = cty_sf %>% geo_join(LeafletCounties, by_sp = "fips", by_df = "key_numeric")
 
 # using same color scheme as the static one
 myPal = colorFactor('Set2', domain = LeafletCounties$value, na.color = "white")
@@ -599,7 +676,7 @@ myPal = colorFactor('Set2', domain = LeafletCounties$value, na.color = "white")
 leaflet(height=500) %>% # initializing the leaflet map
   setView(lng = -96, lat = 37.8, zoom = 3.8) %>% # setting the view on Continental US
   addTiles() %>% # adding the default tiles
-  addPolygons(data = USA, stroke = FALSE, fillColor = ~myPal(LeafletCounties$value), # adding the data
+  addPolygons(data = LeafletCounties, stroke = FALSE, fillColor = ~myPal(LeafletCounties$value), # adding the data
               weight = 2, opacity = 1, color = "white", dashArray = "3", fillOpacity = 0.7, # adding color specs
               popup = paste("County:", LeafletCounties$NAME_2, '<br>', 
                             "Cluster #:", LeafletCounties$value, '<br>',
@@ -612,17 +689,20 @@ leaflet(height=500) %>% # initializing the leaflet map
 From both maps, some regional clustering of the counties can be seen (an interesting result since the clustering approach was only based on the scaled and smoothed time series of newly reported daily cases per county). 
 
 ### Static Map {-}
-```{r staticCluster}
-# ungrouping clusterCounties and selecting just the two variables needed for the clustering
-vizCounties = clusterCounties %>% ungroup() %>% select(key_numeric, cluster_group)
+```{r staticCluster, fig.show='last'}
+# Here we capitalized on the beautiful d3 maps (from the r2d3maps package) and the albersusa package for
+# map projection to create a d3map and then capitalized on orca() from plotly to convert it into a
+# well designed static plot
+d3map = d3_map(shape = LeafletCounties, projection = "Albers", height = 500) %>%
+  add_discrete_scale(var = "value", palette = "Set2") %>%
+  add_legend(title = "Cluster #")
 
-colnames(vizCounties) = c('region', 'value') #renaming columns to match required inputs for county_choropleth()
-levels(vizCounties$value) = paste0('Cluster #', levels(vizCounties$value) ) # Prefix Cluster # to each cluster number 
+# saving output as a static png to be used in the paper
+# Using the save_d3_png() function requires that you install the webshot package, as well as the
+# phantom.js headless browser (which you can install using the function webshot::install_phantomjs()).
+r2d3::save_d3_png(d3map, file = '../Figures/CountiesClustered.png', width = 1366, height = 768)
 
-# Creating the Map Using ggplot options
-choro = CountyChoropleth$new(vizCounties) #creating the plot object
-choro$ggplot_scale = scale_fill_brewer(name="Cluster", type = "qual", palette= 'Set2') # using colorbrewer colors
-choro$render() + theme(legend.position = "bottom") # rendering the plot
+d3map # printing it out for the markdown
 ```
 
 From both maps, some regional clustering of the counties can be seen (an interesting result since the clustering approach was only based on the scaled and smoothed time series of newly reported daily cases per county). 
@@ -764,10 +844,8 @@ Based on the results from both the cross validation and holdout set, we will use
 ```{r multiModel1}
 df = multiClassData %>% select(-c(id, key_numeric, administrative_area_level_2, administrative_area_level_3)) # removing these variables
 
-df$cluster_group %<>%  recode(C2 = '1st.Wave', C1 = '2nd.Wave', C3 = 'Other') %>% # recoding values
-  factor(levels = c('1st.Wave', '2nd.Wave', 'Other'))
 # setting the reference level to category with max frequency
-df$clustReLeveled = relevel(df$cluster_group, ref = maxCat(df$cluster_group) ) #(w/ data ending in 2020-10-03 --> = `no wave` group i.e. C3)
+df$clustReLeveled = relevel(df$cluster_group, ref = maxCat(df$cluster_group) )
 df = df %>% select(-c(cluster_group)) # removed since we created a reLeveled version and stored it in a diff va
 finalModel = multinom(clustReLeveled ~ ., data = df) # create model
 ```
@@ -779,6 +857,10 @@ finalModel = multinom(clustReLeveled ~ ., data = df) # create model
 stargazer(finalModel, type = 'html', p.auto = FALSE, out="../Data/multi.html", single.row = TRUE) # tabulating the results
 ```
 </center>
+```{r multiModel2latex, echo=FALSE}
+stargazer(finalModel, type = 'latex', p.auto = FALSE, out="../Data/multi.tex", single.row = TRUE) # tabulating the results
+```
+
 
 ### Validating Stargazer's Results {.tabset .tabset-fade .tabset-pills}
 
@@ -812,18 +894,23 @@ predictedProbs = fitted(finalModel) # computing predicted probabilities for each
 multiClassResults = cbind(na.omit(multiClassData), predictedProbs) %>%  # column binding the objects predictedProbs with multiClassData
   select(-c(id, key_numeric, administrative_area_level_2, administrative_area_level_3, cluster_group)) # dropping id type columns
 
+# Finding indices for subsetting data
+numberOfClusters = unique(multiClassData$cluster_group) %>% 
+  as.character() %>% length() # automatically finding the number of clusters in our best model
+startCol = ncol(multiClassResults) - numberOfClusters + 1
+endCol = ncol(multiClassResults)
+
 # DF for Cat Data
-multiClassCat = multiClassResults
-multiClassCat$LargestProbCluster = colnames(multiClassCat[, 9:11])[apply(multiClassCat[, 9:11], 1, which.max)] 
+multiClassCat = multiClassResults 
+multiClassCat$LargestProbCluster = colnames(multiClassCat[, startCol:endCol])[apply(multiClassCat[, startCol:endCol], 1, which.max)]
 
 # DF for Line Plots
 multiClassResults = reshape2::melt(multiClassResults, id.vars = colnames(multiClassResults)[1:8],
                                    value.name = 'probability') # convert data into a long format
 
 # Ensuring consistent colors with previous plots
-colorPal =  brewer.pal(n=3, 'Set2')
-names(colorPal) = levels(multiClassData$cluster_group) %>% 
-  recode_factor(C1 = '2nd.Wave', C2 = '1st.Wave', C3 = 'Other')
+colorPal =  brewer.pal(n=numberOfClusters, 'Set2')
+names(colorPal) = levels(multiClassData$cluster_group)
 
 # Creating a summary Table for numeric variables based on each combination of all categorical variables
 resSummary = multiClassResults %>% group_by(variable, regions, governorsParty, countyType) %>% 
@@ -937,37 +1024,34 @@ multiClassCat %>% select(c(LargestProbCluster, countyType)) %>% # selecting the 
 In the chunk below, we answer the question which counties were correctly predicted by the multinomial regression model (i.e., the classification results from the multinomial regression model matched the cluster assignment from the $k$-means clustering algorithm). The map below is interactive to allow the reader to zoom, and click on a county to obtain (relevant information).
 
 ```{r resMapProb, results='asis', out.width = '100%'}
-mapResults = cbind(na.omit(multiClassData), predictedProbs) # we need the ids for this 
+mapResults = cbind(na.omit(multiClassData), predictedProbs) # we need the ids for this
+startCol = ncol(mapResults) - numberOfClusters + 1
+endCol = ncol(mapResults)
 
-mapResults$cluster_group %<>%  recode(C1 = '2nd.Wave', C2 = '1st.Wave', C3 = 'Other') %>% # making names more informative
-  factor(levels = c('1st.Wave', '2nd.Wave', 'Other')) # making the levels appear in the order of outbreak
+mapResults = cbind(na.omit(multiClassData), predictedProbs) %>% 
+  mutate(key_numeric = str_pad(key_numeric, width = 5, side = 'left', pad = '0') %>% as.factor())
 
-# For each county, we find the cluster with largest prob from the multinomial model's results
-mapResults$LargestProbCluster =  colnames(mapResults[, 14:16])[apply(mapResults[, 14:16], 1, which.max)] 
-
-# Does the cluster name with largest prob match the one assigned from the k-means clustering approach?
+# Appending Columns to Map Results and Transforming key-numeric to a proper FIPS_Code
+mapResults$key_numeric %<>% str_pad(width = 5, side = 'left', pad = '0') %>% as.factor()
+mapResults$LargestProbCluster =  colnames(mapResults[, startCol:endCol])[apply(mapResults[, startCol:endCol], 1, which.max)] 
 mapResults$match = ifelse(mapResults$cluster_group == mapResults$LargestProbCluster, 'Yes', 'No') %>% as.factor()
 
-# Merging with the USA data frame from the previous leaflet plot
-mapResults = merge(USA, mapResults, 
-                   by.x = c('NAME_1', 'NAME_2'), 
-                   by.y = c('administrative_area_level_2', 'administrative_area_level_3'),
-                   all.x = TRUE) # merging them
+cty_sf_joined <- cty_sf %>% geo_join(mapResults, by_sp = "fips", by_df = "key_numeric")
 
-# using same color scheme as the static one
-myPal = colorFactor('Paired', domain = mapResults$match, na.color = "white")
-  
+
+myPal = colorFactor('Paired', domain = cty_sf_joined$match, na.color = "white")
+
 leaflet(height=500) %>% # initializing the leaflet map
   setView(lng = -96, lat = 37.8, zoom = 3.8) %>% # setting the view on Continental US
   addTiles() %>% # adding the default tiles
-  addPolygons(data = USA, stroke = FALSE, fillColor = ~myPal(mapResults$match), # adding the data
+  addPolygons(data = cty_sf, stroke = FALSE, fillColor = ~myPal(cty_sf_joined$match), # adding the data
               weight = 2, opacity = 1, color = "white", dashArray = "3", fillOpacity = 0.7, # adding color specs
-              popup = paste("County:", mapResults$NAME_2, '<br>', 
-                            "Cluster #:", mapResults$cluster_group, '<br>',
-                            'Cluster Pred from Multinomial:', mapResults$LargestProbCluster, '<br>', 
-                            "Population Density:", round(mapResults$popDensity, 1), '<br>',
-                            "Poverty %:", round(mapResults$povertyPercent, 1), '<br>')) %>% #pop-up Menu
-  addLegend(position = "bottomleft", pal = myPal, values =  mapResults$match, 
+              popup = paste("County:", cty_sf_joined$NAME_2, '<br>', 
+                            "Cluster #:", cty_sf_joined$cluster_group, '<br>',
+                            'Cluster Pred from Multinomial:', cty_sf_joined$LargestProbCluster, '<br>', 
+                            "Population Density:", round(cty_sf_joined$popDensity, 1), '<br>',
+                            "Poverty %:", round(cty_sf_joined$povertyPercent, 1), '<br>')) %>% #pop-up Menu
+  addLegend(position = "bottomleft", pal = myPal, values =  cty_sf_joined$match, 
             title = "Cluster Match", opacity = 1) # legend formatting
 ```
 
@@ -977,38 +1061,28 @@ leaflet(height=500) %>% # initializing the leaflet map
 In the chunk below, we answer the question which counties were correctly predicted by the multinomial regression model (i.e., the classification results from the multinomial regression model matched the cluster assignment from the $k$-means clustering algorithm). As opposed to the previous map, this is a static map that can be easily exported into traditional presentations and written reports.
 
 ```{r staticMapResults}
-#Repeating first three steps from previous chunk since we have overwrote the object
-mapResults = cbind(na.omit(multiClassData), predictedProbs) %>% 
-   mutate(cluster_group = recode(cluster_group, C1 = '2nd.Wave', C2 = '1st.Wave', C3 = 'Other'))
+d3map2 = d3_map(shape = cty_sf_joined, projection = "Albers", height = 500) %>%
+  add_discrete_scale(var = "match", palette = "Paired") %>%
+  add_legend(title = "Cluster #")
 
-mapResults$cluster_group %<>% factor(levels = c('1st.Wave', '2nd.Wave', 'Other')) # making the levels appear in the order of outbreak
+# saving output as a static png to be used in the paper
+# Using the save_d3_png() function requires that you install the webshot package, as well as the
+# phantom.js headless browser (which you can install using the function webshot::install_phantomjs()).
+r2d3::save_d3_png(d3map2, file = '../Figures/CountyMatches.png', width = 1366, height = 768)
 
-mapResults$LargestProbCluster =  colnames(mapResults[, 14:16])[apply(mapResults[, 14:16], 1, which.max)] 
+d3map2 # printing it out for the markdown
 
-mapResults$match = ifelse(mapResults$cluster_group == mapResults$LargestProbCluster, 'Yes', 'No') %>% as.factor()
-
-# Preparing Data for Static Map
-mapResults %<>% select(key_numeric, match) 
-colnames(mapResults) = c('region', 'value') #renaming columns to match required inputs for county_choropleth()
-
-# Creating the Map Using ggplot options
-choro = CountyChoropleth$new(mapResults) #creating the plot object
-choro$ggplot_scale = scale_fill_brewer(name="Match", type = "qual", palette= 'Paired') # using colorbrewer colors
-choro$render() + theme(legend.position = "bottom") # rendering the plot
 ```
 
 ### State Summaries
 
-In the code chunk below, we compute the percentage of correctly matched results (i.e., cluster results were correctly prediced by the multinomial regression model) by state.
+In the code chunk below, we compute the percentage of correctly matched results (i.e., cluster results were correctly predicted by the multinomial regression model) by state.
 
 ```{r stateSummaries}
-#Repeating first three steps from previous chunks since we have overwrote the object
-mapResults = cbind(na.omit(multiClassData), predictedProbs) %>% 
-   mutate(cluster_group = recode(cluster_group, C1 = '2nd.Wave', C2 = '1st.Wave', C3 = 'Other'))
+#Repeating  from previous chunks since we overwrote the object
+mapResults = cbind(na.omit(multiClassData), predictedProbs)
 
-mapResults$cluster_group %<>% factor(levels = c('1st.Wave', '2nd.Wave', 'Other')) 
-
-mapResults$LargestProbCluster =  colnames(mapResults[, 14:16])[apply(mapResults[, 14:16], 1, which.max)] 
+mapResults$LargestProbCluster =  colnames(mapResults[, startCol:endCol])[apply(mapResults[, startCol:endCol], 1, which.max)] 
 mapResults$match = ifelse(mapResults$cluster_group == mapResults$LargestProbCluster, 1, 0)
 
 # grouping the object by state
@@ -1038,11 +1112,24 @@ table(mapResults$match)
 # Concluding Remarks
 In this R Markdown document, we have shown that our proposed two stage framework for modeling the smoothed and scaled time series of new daily cases can provide insights into the shape of the outbreak's time-series and some of its associated factors. Specifically, we have shown that:  
 
-- On a county-level, the time series of COVID-19 new daily cases can be clustered into one of three clusters: (a) `Cluster 3 (baseline)` contains 1,476 counties, which have had a limited outbreak of COVID-19, (b) `Cluster 1` contains 1,214 counties which have primarily experienced a second wave of COVID-19, and (c) `Cluster 2` contains 418 counties which have predominately experience a first wave of COVID-19. Note that our total number of counties are slightly less than the number of counties in the contiguous U.S. since we did not have complete data on the confirmed cases for those counties.  
+- On a county-level, the time series of COVID-19 new daily cases can be clustered into `r unique(multiClassData$cluster_group) %>% length()` clusters.  
 
-- Using a multinomial regression model, we have shown/quantified the impact of the following factors: (a) county type (rural/underserved vs not), (b) population density, (c) percentage of the county' population voting Republican in the 2016 Presidential Elections, (d) the affiliation of the state's governor [mayor in case of the District of Columbia], (e) percentage of seniors in the county, (f) the number of ICU beds per 10,000 Residents within the county, (g) the CDC region's categorization of the state, and (h) percent of the county's resident population in poverty on the odds of being in Cluster 1 or Cluster 2 compared to the baseline of Cluster 3.
+- Using a multinomial regression model, we have shown/quantified the impact of the following factors: (a) county type (rural/underserved vs not), (b) population density, (c) percentage of the county' population voting Republican in the 2016 Presidential Elections, (d) the affiliation of the state's governor [mayor in case of the District of Columbia], (e) percentage of seniors in the county, (f) the number of ICU beds per 10,000 Residents within the county, (g) the CDC region's categorization of the state, and (h) percent of the county's resident population in poverty on the odds of being in a specific cluster when compared to the baseline.
 
 
 ---
 
-# References {-}
+# References
+<div id="refs"></div>
+
+---
+
+# Appendix
+In the appendix, we print all the R packages used in our analysis and their versions to assist with reproducing our results/analysis.
+
+```{r sessionInfo}
+sInfo
+```
+
+---
+
