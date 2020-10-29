@@ -579,26 +579,28 @@ saveRDS(clusterCounties, '../Data/clusterCounties.rds')
 
 ## Visualizing the Clusters {.tabset .tabset-fade .tabset-pills}
 
-In this subsection, we provide four plots:
+In this subsection, we provide six sets of plots:
 
   - The 7-day moving averages of daily confirmed cases for `r unique(clusterCounties$cluster_group) + 4` counties as well the aggregated numbers for the entire US;  
   - A [0,1] scaled version of the previous plot;  
+  - A panel of 9 sample scaled time-series for each cluster;  
+  - A panel plot where the first, second and third quartiles of the scaled time-series for each cluster are compared;  
   - An interactive chloropleth maps to visualize the spatial distribution of the clusters, where the reader can click on a given county to show: (a) county name, (b) assigned cluster, (c) population density, and (d) percentage of residents in poverty; and
   - A static, more suitable for the print publication, choropleth map. Here, we only show the cluster assignment for a given county. 
   
-All four plots can be accessed by toggling through the tabsets below.
+All plots can be accessed by toggling through the tabsets below. Note that the third tabs contains subtabs (one for each cluster).
 
 
 ### Sample Time-Series: Non-Scaled {-}
 
 ```{r sampleTSForClusters1}
 # Obtaining the counties with max population density per cluster in addition to three counties were the authors
-# resided (as a sanity check) and a rural county in the UP in MI (also a sanity check)
+# resided (as a sanity check) and the Navajo County in Arizona where COVID outbreaks were reported
 PopDensities = clusterCounties %>% ungroup() %>% group_by(cluster_group) %>% 
   summarise(pd = max(popDensity, na.rm = T))
 
 indices = c(which(clusterCounties$popDensity %in% PopDensities$pd),
-            which(clusterCounties$key_numeric%in% c(1081, 17119, 39017, 26135)) )
+            which(clusterCounties$key_numeric%in% c(1081, 17119, 39017, 4017)) )
 
 # creating a lookup data frame
 lookupDF = clusterCounties[indices, c('id', 'cluster_group')]
@@ -624,10 +626,10 @@ sampleCounties = counties %>% # from the counties
 # Joining the US Data with the Sample Counties
 sampleCountiesPlusUS = rbind(usAggregate, sampleCounties)
 sampleCountiesPlusUS = left_join(sampleCountiesPlusUS, lookupDF, by = 'id')
-sampleCountiesPlusUS$cluster_group %<>% as.character() %>% replace_na('Not Clustered')
+sampleCountiesPlusUS$cluster_group %<>% as.character() %>% replace_na('Not Clustered') %>% as.factor()
 sampleCountiesPlusUS$key_google_mobility %<>% recode(US = 'Aggregate for the Entire US') 
 
-colorPal =  brewer.pal(n= unique(sampleCountiesPlusUS$cluster_group) %>% length(), 'Set2')
+colorPal =  brewer.pal(n= levels(sampleCountiesPlusUS$cluster_group) %>% length(), 'Set2')
 names(colorPal) = levels(sampleCountiesPlusUS$cluster_group)
 
 
@@ -638,7 +640,7 @@ sampleCountiesPlusUS %>% ggplot(aes(x = date, y = newMA7, group = id, color = cl
   theme_bw(base_size = 11) + 
   theme(legend.position = 'none') + 
   labs(color = '', x = 'Month', y = 'New Cases By County') +
-  scale_color_brewer(type = 'qual', palette = 'Set2')
+  scale_color_manual(values = colorPal)
 ```
 
 ### Sample Time-Series: Scaled {-}
@@ -650,8 +652,78 @@ sampleCountiesPlusUS %>% ggplot(aes(x = date, y = scaledNewMA7, group = id, colo
   theme_bw(base_size = 11) + 
   theme(legend.position = 'none') + 
   labs(color = '', x = 'Month', y = 'New Cases By County') +
-  scale_color_brewer(type = 'qual', palette = 'Set2')
+  scale_color_manual(values = colorPal)
+```
 
+### Samples of Scaled Time-Series Per Cluster {- .tabset .tabset-fade .tabset-pills}
+
+```{r clusterSamples, results='asis'}
+for (i in 1:length(levels(clusterCounties$cluster_group))) {
+indexesForPlot = clusterCounties %>% filter(cluster_group %in% as.character(i)) %>% 
+   pull(id) %>% sample(9) # pulling nine ids from each cluster 
+ 
+
+# Printing the tabs
+ cat(paste('#### Cluster', i, '{-} \n \n'))
+ 
+ # Subsetting and plotting the data
+  counties %>% # from the counties
+    select(id, date, newCases, key_google_mobility) %>% # selecting minimal columns
+    filter(id %in% indexesForPlot & !is.na(key_google_mobility)) %>% # selecting the rows of interest
+    left_join(clusterCounties[, c('id', 'cluster_group')], by = 'id') %>% # to get clusters
+  arrange(id, date) %>% # arranged to ensure correct calculations
+  mutate(newMA7 = rollmeanr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
+         maxMA7 = max(newMA7, na.rm = T), # obtaining the max per county to scale data
+         scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE) ) %>% 
+  ggplot(aes(x = date, y = scaledNewMA7, group = id, color = cluster_group)) +
+  geom_line(size = 1) +
+  facet_wrap(~ key_google_mobility, scales = 'free_y', ncol = 3) + 
+  theme_bw(base_size = 11) + 
+  theme(legend.position = 'none') + 
+  labs(color = '', x = 'Month', y = 'New Cases By County', caption = paste0('Cluster: ', i)) +
+  scale_color_manual(values = colorPal) -> cplot
+  
+  print(cplot) # to print out the graphs
+  
+  cat('\n \n')
+}
+
+```
+
+
+### Summaries of the Scaled Time-Series for Each Cluster {-}
+
+```{r clusterAverages}
+
+dfAvg = counties %>% # from the counties
+    select(id, date, newCases, key_google_mobility) %>% # selecting minimal columns
+    left_join(clusterCounties[, c('id', 'cluster_group')], by = 'id') %>% # to get clusters
+  arrange(id, date) %>% # arranged to ensure correct calculations
+  mutate(newMA7 = rollmeanr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
+         maxMA7 = max(newMA7, na.rm = T), # obtaining the max per county to scale data
+         scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE) ) %>% 
+  ungroup() %>% select(date, cluster_group, scaledNewMA7) %>% 
+  group_by(date, cluster_group) %>% 
+  summarise(Mean = mean(scaledNewMA7, na.rm= TRUE),
+            `First Quartile` = quantile(scaledNewMA7, probs = 0.25, na.rm= TRUE),
+            `Third Quartile` = quantile(scaledNewMA7, probs = 0.75, na.rm= TRUE))
+
+# to have nice panels names but unfortunately will require a new colorPanel
+levels(dfAvg$cluster_group) = paste('Cluster', levels(dfAvg$cluster_group))
+colorPal2 =  brewer.pal(n= levels(dfAvg$cluster_group) %>% length(), 'Set2')
+names(colorPal2) = levels(dfAvg$cluster_group)
+
+dfAvg %<>% pivot_longer(cols = c(`First Quartile`, Mean, `Third Quartile`),
+                        names_to = 'Statistic') 
+
+ dfAvg %>%  ggplot(aes(x = date, y = value, color = cluster_group, linetype =  Statistic)) +
+  geom_line(size = 1.25) +
+   scale_linetype_manual(values = c('dotted', 'solid', 'twodash')) +
+  facet_wrap(~ cluster_group, ncol = 2) + 
+  theme_bw(base_size = 9.5) + 
+  theme(legend.position = 'top') + 
+  labs(color = '', x = 'Month', y = 'Quartiles of Scaled New Cases By Cluster By Day') +
+  scale_color_manual(values = colorPal2)
 ```
 
 
