@@ -579,11 +579,12 @@ saveRDS(clusterCounties, '../Data/clusterCounties.rds')
 
 ## Visualizing the Clusters {.tabset .tabset-fade .tabset-pills}
 
-In this subsection, we provide six sets of plots:
+In this subsection, we provide seven sets of plots:
 
   - The 7-day moving averages of daily confirmed cases for `r unique(clusterCounties$cluster_group) + 4` counties as well the aggregated numbers for the entire US;  
   - A [0,1] scaled version of the previous plot;  
   - A panel of 9 sample scaled time-series for each cluster;  
+  - A paneled spaghetti plot, highlighting the median scaled time-series for profile for each cluster;
   - A panel plot where the first, second and third quartiles of the scaled time-series for each cluster are compared;  
   - An interactive chloropleth maps to visualize the spatial distribution of the clusters, where the reader can click on a given county to show: (a) county name, (b) assigned cluster, (c) population density, and (d) percentage of residents in poverty; and
   - A static, more suitable for the print publication, choropleth map. Here, we only show the cluster assignment for a given county. 
@@ -690,6 +691,40 @@ indexesForPlot = clusterCounties %>% filter(cluster_group %in% as.character(i)) 
 
 ```
 
+### Paneled Spaghetti Plot {-}
+
+```{r spaghettiplot}
+spaghettiDF = counties %>% # from the counties
+  select(id, date, newCases, key_google_mobility) %>% # selecting minimal columns
+  left_join(clusterCounties[, c('id', 'cluster_group')], by = 'id') %>% # to get clusters
+  arrange(id, date) %>% # arranged to ensure correct calculations
+  mutate(newMA7 = rollmeanr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
+         maxMA7 = max(newMA7, na.rm = T), # obtaining the max per county to scale data
+         scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE) ) %>% 
+  ungroup() %>% select(date, cluster_group, scaledNewMA7, key_google_mobility) %>% 
+  group_by(date, cluster_group)
+
+# to have nice panels names but unfortunately will require a new colorPanel
+levels(spaghettiDF$cluster_group) = paste('Cluster', levels(spaghettiDF$cluster_group))
+colorPal2 =  brewer.pal(n= levels(spaghettiDF$cluster_group) %>% length(), 'Set2')
+names(colorPal2) = levels(spaghettiDF$cluster_group)
+
+spaghettiDF %>%  ggplot(aes(x = date, y = scaledNewMA7, color = cluster_group, group = key_google_mobility)) +
+  geom_line(size = 0.25, alpha = 0.1) +
+  stat_summary(aes(group = 1), 
+               fun= median,
+               geom = "line",
+               size = 1.25, col = 'black') + 
+  facet_wrap(~ cluster_group, ncol = 2) + 
+  theme_bw(base_size = 9.25) + 
+  theme(legend.position = 'none') + 
+  labs(x = 'Month', y = 'Scaled New Cases By Cluster By Day',
+       caption = 'Solid black line represents the median for each cluster | Based on Data from Mar 01, 2020 - Oct 24, 2020') +
+  scale_color_manual(values = colorPal2)
+
+ggsave('../Figures/spaghettiPlot.png', width = 7.5, height = 3.75, units = 'in', dpi = 320)
+
+```
 
 ### Summaries of the Scaled Time-Series for Each Cluster {-}
 
