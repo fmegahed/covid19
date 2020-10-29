@@ -704,7 +704,7 @@ dfAvg = counties %>% # from the counties
          scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE) ) %>% 
   ungroup() %>% select(date, cluster_group, scaledNewMA7) %>% 
   group_by(date, cluster_group) %>% 
-  summarise(Mean = mean(scaledNewMA7, na.rm= TRUE),
+  summarise(Median = median(scaledNewMA7, na.rm= TRUE),
             `First Quartile` = quantile(scaledNewMA7, probs = 0.25, na.rm= TRUE),
             `Third Quartile` = quantile(scaledNewMA7, probs = 0.75, na.rm= TRUE))
 
@@ -713,14 +713,14 @@ levels(dfAvg$cluster_group) = paste('Cluster', levels(dfAvg$cluster_group))
 colorPal2 =  brewer.pal(n= levels(dfAvg$cluster_group) %>% length(), 'Set2')
 names(colorPal2) = levels(dfAvg$cluster_group)
 
-dfAvg %<>% pivot_longer(cols = c(`First Quartile`, Mean, `Third Quartile`),
+dfAvg %<>% pivot_longer(cols = c(`First Quartile`, Median, `Third Quartile`),
                         names_to = 'Statistic') 
 
  dfAvg %>%  ggplot(aes(x = date, y = value, color = cluster_group, linetype =  Statistic)) +
   geom_line(size = 1.25) +
    scale_linetype_manual(values = c('dotted', 'solid', 'twodash')) +
   facet_wrap(~ cluster_group, ncol = 2) + 
-  theme_bw(base_size = 9.5) + 
+  theme_bw(base_size = 9.25) + 
   theme(legend.position = 'top') + 
   labs(color = '', x = 'Month', y = 'Quartiles of Scaled New Cases By Cluster By Day') +
   scale_color_manual(values = colorPal2)
