@@ -79,3 +79,56 @@ mapData = counties %>% ungroup() %>%
          PercentSeniors, icuBedsPer10000Residents, povertyPercent) %>% 
   unique()
 write.csv(mapData, file = 'mapData.csv', row.names = F)
+
+
+# CDC Plot in R
+# Counties
+pacman::p_load(maps, tidyverse, viridis, janitor)
+
+state_sf = usa_sf("longlat") %>% filter(!name %in% c('Alaska', 'Hawaii')) # from albersua
+
+counties %>% ungroup() %>%  select(administrative_area_level_2, regions) %>% unique() -> dfCDC
+dfCDC$regions = gsub('\\.', ' ', dfCDC$regions) %>% as.factor()
+
+state_sf %<>% geo_join(dfCDC, by_sp= 'name', by_df= 'administrative_area_level_2')
+
+d3map = d3_map(shape = state_sf, projection = "Albers", height = 768) %>%
+  add_discrete_scale(var = "regions", palette = "Paired") %>%
+  add_legend(title = "")
+
+d3map
+
+r2d3::save_d3_png(d3map, file = 'cdcRegionsV1.png', 
+                  width = 1366, height = 768, zoom = 2, delay = 3)
+
+
+
+# Improving the Resolution of the 4 Clusters Map
+cty_sf = counties_sf("longlat") %>% # from albersusa package
+  filter(!state %in% c('Alaska', 'Hawaii'))
+
+# ungrouping clusterCounties and selecting just the two variables needed for the clustering
+LeafletCounties = clusterCounties %>% ungroup() %>%
+  dplyr::select(key_numeric, administrative_area_level_2, administrative_area_level_3, cluster_group, popDensity, povertyPercent)
+colnames(LeafletCounties) = c('key_numeric', 'NAME_1', 'NAME_2', 'value', 'popDensity', 'povertyPercent')
+
+# Converting the key_numeric to a proper FIPS_Code and then to a factor variable
+LeafletCounties$key_numeric %<>% str_pad(width = 5, side = 'left', pad = '0') %>% as.factor()
+
+LeafletCounties = cty_sf %>% geo_join(LeafletCounties, by_sp = "fips", by_df = "key_numeric")
+LeafletCounties %<>%  mutate( value = paste0('C', value) )
+LeafletCounties %<>% mutate_at(vars(value), na_if, 'CNA') %>% 
+  mutate(value = as.factor(value))
+
+
+# using same color scheme as the static one
+myPal = colorFactor('Set2', domain = LeafletCounties$value, na.color = "white")
+
+d3map = d3_map(shape = LeafletCounties, projection = "Albers", height = 768) %>%
+  add_discrete_scale(var = "value", palette = "Set2") %>%
+  add_legend(title = "")
+
+d3map
+
+r2d3::save_d3_png(d3map, file = 'CountiesClustered.png', 
+                  width = 1366, height = 768, zoom = 2, delay = 3)
