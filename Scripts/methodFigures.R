@@ -83,7 +83,7 @@ write.csv(mapData, file = 'mapData.csv', row.names = F)
 
 # CDC Plot in R
 # Counties
-pacman::p_load(maps, tidyverse, viridis, janitor)
+pacman::p_load(maps, tidyverse, r2d3maps, magrittr, albersusa, tigris, leaflet)
 
 state_sf = usa_sf("longlat") %>% filter(!name %in% c('Alaska', 'Hawaii')) # from albersua
 
@@ -99,7 +99,7 @@ d3map = d3_map(shape = state_sf, projection = "Albers", height = 768) %>%
 d3map
 
 r2d3::save_d3_png(d3map, file = 'cdcRegionsV1.png', 
-                  width = 1366, height = 768, zoom = 2, delay = 3)
+                  width = 1366, height = 768, zoom = 1, delay = 3)
 
 
 
@@ -131,4 +131,4 @@ d3map = d3_map(shape = LeafletCounties, projection = "Albers", height = 768) %>%
 d3map
 
 r2d3::save_d3_png(d3map, file = 'CountiesClustered.png', 
-                  width = 1366, height = 768, zoom = 2, delay = 3)
+                  width = 1366, height = 768, zoom = 1, delay = 3)
