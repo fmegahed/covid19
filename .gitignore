@@ -29,3 +29,4 @@ vignettes/*.pdf
 Data/dtwUniv.RData
 Markdown/covid_analysis_cache/
 Markdown/covid_analysis_files/
+Data/tl_2016_us_county.shp
