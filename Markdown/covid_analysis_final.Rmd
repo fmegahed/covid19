@@ -807,8 +807,8 @@ Betacoe = spatial.base6[, (1:60)] # based on current number of predictors
 saveRDS(Betacoe, '../Data/betacoe.rds') # saving the data
 
 # Computing the coefficients' values
-coeffTable = rbind(colMeans(Betacoe), colSds(Betacoe))
-rownames(coeffTable) = c('means', 'stdevs')
+coeffTable = rbind(colMeans(Betacoe), apply(Betacoe, 2, HDIofMCMC))
+rownames(coeffTable) = c('means', 'LCI', 'UCI')
 
 # Formating the output
 coeffTable %<>% as.data.frame() %>% 
@@ -824,11 +824,11 @@ row.names(tCoeffTable) = c('constant', 'rural', 'popDensity', 'percSeniors',
                            'govResponse', 'percPoverty', 'regionA', 'regionB', 'regionC',
                            'regionD', 'regionE', 'regionF', 'regionG', 'regionH',
                            'regionI')
-colnames(tCoeffTable) = c('C2_coef_mean', 'C2_coef_sd',
-                          'C3_coef_mean', 'C3_coef_sd',
-                          'C4_coef_mean', 'C4_coef_sd')
+colnames(tCoeffTable) = c('C2_mean', 'C2_LCI', 'C2_UCI',
+                          'C3_mean', 'C3_LCI', 'C3_LCI',
+                          'C4_mean', 'C4_LCI', 'C4_LCI')
 
-tCoeffTable %>% round(digits = 3) %>% datatable(
+tCoeffTable %>% round(digits = 2) %>% datatable(
           extensions = c('FixedColumns', 'Buttons'), options = list(
             pageLength = 15,
             dom = 'Bfrtip',
@@ -916,10 +916,56 @@ leaflet(height = 500) %>%
                             "Cluster Predicted:", leaflet_sf$pred, '<br>',
                             "Cluster Match:", leaflet_sf$match, '<br>')) %>% #pop-up menu items
   addLegend(position = "bottomleft", pal = leafletPal, values =  leaflet_sf$match, 
-            title = "Cluster Match", opacity = 1) -> leafletPlot
+            title = "Cluster Match", opacity = 1)
+```
 
-saveWidget(leafletPlot, 'map.html')
-htmltools::includeHTML("map.html")
+
+## Trace Plots {.tabset .tabset-fade .tabset-pills}
+```{r trace, results='asis'}
+Betacoe = readRDS('../Data/betacoe.rds') # saving the data
+
+Betacoe %<>% as.data.frame() %>%  
+  select(paste0(paste0("b", rep(seq(0, 14), 4)), '[',
+                c(rep(1,15), rep(2,15), rep(3,15), rep(4,15)),
+                ']' )) %>% # reordering cols by name
+  select_if(~ !any(is.na(.)))  # dropping NA cols (corresponding to Cluster 1)
+
+BetacoeLonger = Betacoe %>% pivot_longer(cols = starts_with('b'))
+
+# For loop below is used to create a panel of trace plots for each cluster
+## results are shown in the three tabs below
+for (counter in 2:4) {
+  temp = BetacoeLonger %>% filter(str_detect(name, paste0('\\[', counter, '\\]'))) # since cluster number is between square brackets
+  temp$name %<>% str_replace_all("\\[|.\\]", "") # to remove the square bracket and its components from the name
+  
+  temp$name %<>% recode(b0 = 'constant', b1 = 'rural', b2 = 'popDensity', b3 = 'percSeniors',
+                        b4 = 'govResponse', b5 = 'percPoverty', b6 = 'regionA', b7 = 'regionB',
+                        b8 = 'regionC', b9 = 'regionD', b10 = 'regionE', b11 = 'regionF',
+                        b12 = 'regionG', b13 = 'regionH', b14 = 'regionA') 
+ 
+  temp %<>% arrange(name) 
+  temp$obs = rep(seq(1,1500), 15)
+   
+  temp %>% ggplot(aes(x = obs, y = value)) + geom_line() + 
+    labs(x = 'Observation Number', y = 'Coefficient Value', 
+         title = paste('Trace Plot for the Coefficients of Cluster', counter), 
+         caption = 'Based on 1500 recorded simulation observations (thinned by 100)') +
+    facet_wrap(~name, ncol = 3, scales = 'free_y') + theme_bw() -> traceplot
+  
+  ggsave(filename = paste0('../Figures/tracePlotCluster0', counter, '.tiff'),
+         plot = traceplot, device = 'tiff', dpi = 600)
+  
+  cat('\n \n')
+  
+  cat('###', paste0("Cluster ", counter), "{-}",'\n')
+  
+  
+  print(traceplot)
+  
+  cat('\n') # new line
+  cat('\n')
+  cat('\n')
+}
 ```
 
 
