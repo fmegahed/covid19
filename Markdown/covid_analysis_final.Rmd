@@ -828,7 +828,10 @@ colnames(tCoeffTable) = c('C2_mean', 'C2_LCI', 'C2_UCI',
                           'C3_mean', 'C3_LCI', 'C3_LCI',
                           'C4_mean', 'C4_LCI', 'C4_LCI')
 
-tCoeffTable %>% round(digits = 2) %>% datatable(
+# Rescaling the coefficient value for population density for all clusters (since it was very small)
+tCoeffTable['popDensity',] = tCoeffTable['popDensity',] * 10000
+
+tCoeffTable %>% round(digits = 3) %>% datatable(
           extensions = c('FixedColumns', 'Buttons'), options = list(
             pageLength = 15,
             dom = 'Bfrtip',
@@ -931,6 +934,7 @@ Betacoe %<>% as.data.frame() %>%
   select_if(~ !any(is.na(.)))  # dropping NA cols (corresponding to Cluster 1)
 
 BetacoeLonger = Betacoe %>% pivot_longer(cols = starts_with('b'))
+BetacoeLonger = cbind(obs = row.names(BetacoeLonger), BetacoeLonger)
 
 # For loop below is used to create a panel of trace plots for each cluster
 ## results are shown in the three tabs below
@@ -943,7 +947,7 @@ for (counter in 2:4) {
                         b8 = 'regionC', b9 = 'regionD', b10 = 'regionE', b11 = 'regionF',
                         b12 = 'regionG', b13 = 'regionH', b14 = 'regionA') 
  
-  temp %<>% arrange(name) 
+  temp %<>% arrange(name, obs) 
   temp$obs = rep(seq(1,1500), 15)
    
   temp %>% ggplot(aes(x = obs, y = value)) + geom_line() + 
@@ -966,6 +970,25 @@ for (counter in 2:4) {
   cat('\n')
   cat('\n')
 }
+
+cat('\n \n')
+
+cat('### tauU', "{-}",'\n')
+tauU = spatial.base6[,'tauu']
+
+# converting the tauU to a data.frame to facilitate plotting
+tauU = data.frame(obs = seq(1,1500), tauU = as.numeric(tauU))
+  
+tauU %>% ggplot(aes(x = obs, y = tauU)) + geom_line() + 
+    labs(x = 'Observation Number', y = 'tauU Value', 
+         title = paste('Trace Plot for the tauU Hyperparamater', counter), 
+         caption = 'Based on 1500 recorded simulation observations (thinned by 100)') +
+  theme_bw() -> traceplot
+
+ggsave(filename = paste0('../Figures/tracePlotTauU', counter, '.tiff'),
+         plot = traceplot, device = 'tiff', dpi = 600)
+
+print(traceplot)
 ```
 
 
