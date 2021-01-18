@@ -5,7 +5,7 @@ setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # automatically set 
 pacman::p_load(tidyverse, COVID19, magrittr, lubridate, fpp2, zoo) # loading required packages
 
 # National Data
-us = covid19(country = 'US', level = 1, start = '2020-03-01', end = '2020-10-17')
+us = covid19(country = 'US', level = 1, start = '2020-03-01', end = '2021-01-02')
 us %<>% select(id, key_google_mobility, date, confirmed) %>% 
   mutate(newCases = c(NA, diff(confirmed)),
          newMA7 = rollmeanr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
@@ -13,7 +13,7 @@ us %<>% select(id, key_google_mobility, date, confirmed) %>%
          scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE))
 
 # Counties Data
-counties = covid19(country = 'US', level = 3, start = '2020-03-01', end = '2020-10-17',
+counties = covid19(country = 'US', level = 3, start = '2020-03-01', end = '2021-01-02',
                    raw = FALSE)
 
 counties %<>% select(id, key_google_mobility, date, confirmed) %>% 
@@ -22,8 +22,9 @@ counties %<>% select(id, key_google_mobility, date, confirmed) %>%
          maxMA7 = max(newMA7, na.rm = T), # obtaining the max per county to scale data
          scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE))
 
-indices = c('Alabama, Lee County', 'Illinois, Madison County', 'Michigan, Oscoda County',
-            'New York, Queens County', 'Ohio, Butler County') # some counties
+indices = c('Alabama, Lee County', 'Arizona, Navajo County', 'California, San Francisco County',
+            'Illinois, Madison County', 'New York, New York County','Ohio, Butler County',
+            'Virginia, Charlottesville', 'Virginia, Falls Church') # some counties
 
 # filtering some counties and combining both data frames
 df = counties %>% filter(key_google_mobility %in% indices)
@@ -33,24 +34,31 @@ df$key_google_mobility %<>% recode(US = 'Aggregate for the Entire US')
 
 
 # Facet Wrap Plot: nonScaledMotivationPlot
-df %>% ggplot(aes(x = date, y = newMA7, group = id, color = key_google_mobility)) +
+png(filename = '../Figures/nonScaledMotivationPlot.png',
+     width = 1366, height =768, pointsize = 16)
+df %>% ggplot(aes(x = date, y = newMA7, group = id)) +
   geom_line(size = 1.5) +
-  facet_wrap(~ key_google_mobility, scales = 'free_y', ncol = 2) + 
+  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+  facet_wrap(~ key_google_mobility, scales = 'free_y', ncol = 3) + 
   theme_bw(base_size = 24) + 
   theme(legend.position = 'none') + 
-  labs(color = '', x = 'Month', y = 'New Cases By County') +
-  scale_color_brewer(type = 'qual', palette = 'Paired')
+  labs(color = '', x = 'Month', y = 'New Cases By County',
+       caption = 'Based on data from 2020-03-01 to 2021-01-02')
+invisible( dev.off() ) # to suppress the unwanted output from dev.off
 
 
 # Facet Wrap Plot: motivationPlot
-df %>% ggplot(aes(x = date, y = scaledNewMA7, group = id, color = key_google_mobility)) +
+png(filename = '../Figures/motivationPlot.png',
+     width = 1366, height =768, pointsize = 16)
+df %>% ggplot(aes(x = date, y = scaledNewMA7, group = id)) +
   geom_line(size = 1.5) +
-  facet_wrap(~ key_google_mobility, scales = 'free_y', ncol = 2) + 
+  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+  facet_wrap(~ key_google_mobility, scales = 'free_y', ncol = 3) + 
   theme_bw(base_size = 24) + 
-  theme(legend.position = 'none') + 
-  labs(color = '', x = 'Month', y = 'New Cases By County') +
-  scale_color_brewer(type = 'qual', palette = 'Paired')
-
+  theme(legend.position = 'none') +
+  labs(color = '', x = 'Month', y = 'New Cases By County',
+       caption = 'Based on data from 2020-03-01 to 2021-01-02')
+invisible( dev.off() ) # to suppress the unwanted output from dev.off
 
 # SampleCountiesOct17: Plot
 indexesForPlot = unique(counties$key_google_mobility) %>% sample(9)

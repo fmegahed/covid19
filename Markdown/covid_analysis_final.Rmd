@@ -442,7 +442,7 @@ It is important to note that, in our estimation, there are three important decis
 clusteringPrep = counties %>% # from the counties
   select(id, date, key_google_mobility, newCases) %>% # selecting minimal amount of cols for visual inspection
   arrange(id, date) %>% # arranged to ensure correct calculations
-  mutate(newMA7 = rollmeanr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
+  mutate(newMA7 = rollmedianr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
          maxMA7 = max(newMA7, na.rm = T), # obtaining the max per county to scale data
          scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE) ) %>% # scaling data to a 0-1 scale by county
   select(id, key_google_mobility, date, scaledNewMA7) %>% # dropping the variable newCases
@@ -512,7 +512,7 @@ spaghettiDF = counties %>% # from the counties
   select(id, date, newCases, key_google_mobility) %>% # selecting minimal columns
   left_join(clusterCounties[, c('id', 'cluster_group')], by = 'id') %>% # to get clusters
   arrange(id, date) %>% # arranged to ensure correct calculations
-  mutate(newMA7 = rollmeanr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) deaths
+  mutate(newMA7 = rollmedianr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) deaths
          maxMA7 = max(newMA7, na.rm = T), # obtaining the max per county to scale data
          scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE) ) %>% 
   ungroup() %>% select(date, cluster_group, scaledNewMA7, key_google_mobility) %>% 
@@ -704,7 +704,7 @@ for (i in 1:m)
 countyType = multiClassDF.sorted$countyType
 Underserved = fastDummies::dummy_cols(countyType)
 Underserved.rural = Underserved$`.data_Rural/Underserved` %>% as.matrix() %>% as.vector()
-popDensity = multiClassDF.sorted$popDensity %>% as.matrix() %>% as.vector()
+popDensity = log(multiClassDF.sorted$popDensity) %>% as.matrix() %>% as.vector()
 GovernmentResponseIndexMedian = multiClassDF.sorted$GovernmentResponseIndexMedian %>% as.matrix() %>% as.vector()
 PercentSeniors = multiClassDF.sorted$PercentSeniors %>% as.matrix() %>% as.vector()
 povertyPercent = multiClassDF.sorted$povertyPercent %>% as.matrix() %>% as.vector()
@@ -803,7 +803,7 @@ print( time.elapsed )
 
 ## Resulting Model
 ```{r spatialModelCoef, results = 'asis'}
-Betacoe = spatial.base6[, (1:60)] # based on current number of predictors
+Betacoe = spatial.base6[, (1:(15*number_of_clusters))] # based on current number of predictors
 saveRDS(Betacoe, '../Data/betacoe.rds') # saving the data
 
 # Computing the coefficients' values
@@ -812,24 +812,20 @@ rownames(coeffTable) = c('means', 'LCI', 'UCI')
 
 # Formating the output
 coeffTable %<>% as.data.frame() %>% 
-  select(paste0(paste0("b", rep(seq(0, 14), 4)), '[', 
-                c(rep(1,15), rep(2,15), rep(3,15), rep(4,15)),
+  select(paste0(paste0("b", rep(seq(0, 14), number_of_clusters)), '[', 
+                sort(rep(1:number_of_clusters, 15)),
                 ']' )) %>% # reordering cols by name
   select_if(~ !any(is.na(.)))  # dropping NA cols (corresponding to Cluster 1)
 
 tCoeffTable = t(coeffTable)
 
-tCoeffTable = cbind(tCoeffTable[1:15,], tCoeffTable[16:30,], tCoeffTable[31:45,]) %>% data.frame()
+tCoeffTable = cbind(tCoeffTable[1:15,], tCoeffTable[16:30,]) %>% data.frame()
 row.names(tCoeffTable) = c('constant', 'rural', 'popDensity', 'percSeniors',
                            'govResponse', 'percPoverty', 'regionA', 'regionB', 'regionC',
                            'regionD', 'regionE', 'regionF', 'regionG', 'regionH',
                            'regionI')
 colnames(tCoeffTable) = c('C2_mean', 'C2_LCI', 'C2_UCI',
-                          'C3_mean', 'C3_LCI', 'C3_LCI',
-                          'C4_mean', 'C4_LCI', 'C4_LCI')
-
-# Rescaling the coefficient value for population density for all clusters (since it was very small)
-tCoeffTable['popDensity',] = tCoeffTable['popDensity',] * 10000
+                          'C3_mean', 'C3_LCI', 'C3_LCI')
 
 tCoeffTable %>% round(digits = 3) %>% datatable(
           extensions = c('FixedColumns', 'Buttons'), options = list(
@@ -843,13 +839,12 @@ tCoeffTable %>% round(digits = 3) %>% datatable(
 ## Model's Performance
 
 ```{r spatialModelResults}
-samples_p = spatial.base6[, -(1:60)]
+samples_p = spatial.base6[, -(1:(number_of_clusters*15))]
 samples_p_mean = colMeans(exp(samples_p[, 1:(number_of_clusters*m)]))
 C1 = samples_p_mean[1:3108]
 C2 = samples_p_mean[3109:6216]
 C3 = samples_p_mean[6217:9324]
-C4 = samples_p_mean[9325:12432]
-pred.0 = cbind(C1, C2, C3, C4) 
+pred.0 = cbind(C1, C2, C3) 
 pred = rep(NA, m)
 for (i in 1:m) {
   vec = pred.0[i, 1:number_of_clusters]
@@ -928,8 +923,8 @@ leaflet(height = 500) %>%
 Betacoe = readRDS('../Data/betacoe.rds') # saving the data
 
 Betacoe %<>% as.data.frame() %>%  
-  select(paste0(paste0("b", rep(seq(0, 14), 4)), '[',
-                c(rep(1,15), rep(2,15), rep(3,15), rep(4,15)),
+  select(paste0(paste0("b", rep(seq(0, 14), number_of_clusters)), '[',
+                sort(rep(1:number_of_clusters, 15)),
                 ']' )) %>% # reordering cols by name
   select_if(~ !any(is.na(.)))  # dropping NA cols (corresponding to Cluster 1)
 
@@ -938,7 +933,7 @@ BetacoeLonger = cbind(obs = row.names(BetacoeLonger), BetacoeLonger)
 
 # For loop below is used to create a panel of trace plots for each cluster
 ## results are shown in the three tabs below
-for (counter in 2:4) {
+for (counter in 2:number_of_clusters) {
   temp = BetacoeLonger %>% filter(str_detect(name, paste0('\\[', counter, '\\]'))) # since cluster number is between square brackets
   temp$name %<>% str_replace_all("\\[|.\\]", "") # to remove the square bracket and its components from the name
   
