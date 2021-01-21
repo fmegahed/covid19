@@ -1010,8 +1010,7 @@ pander(sessionInfo(), compact = TRUE) # printing the session info for reproducib
 
 ```{r multiModel}
 df = readRDS('../Data/df.rds') # loading the data
-df %<>% select(-c(fips, # removed since it was only used in the spatial model 
-                  PercentSeniors)) # was not significant
+df %<>% select(-fips) # removed since it was only used in the spatial model 
 df$popDensity = log(df$popDensity) # since it is highly skewed and we are using a linear model 
 finalModel =  quiet(multinom(clustReLeveled ~ ., data = df)) # building the multinomial model
 ```
@@ -1020,11 +1019,11 @@ finalModel =  quiet(multinom(clustReLeveled ~ ., data = df)) # building the mult
 ```{r multiModelStargazerTex, echo=FALSE, results='hide'}
 # Saving the results as a latex table, but not printing it out in the Markdown document
 invisible(stargazer(finalModel, type = 'latex', p.auto = FALSE, out="../Data/multi.tex", 
-                    single.row = TRUE, header = FALSE)) # saved in data
+                    single.row = TRUE, header = FALSE)) # saved in the data 
 ```
 
 ```{r multiModelStargazer, results='asis'}
-# Printing the model in the Markdown
+# Printing the model in the markdown
 stargazer(finalModel, type = 'html', p.auto = FALSE, out="../Data/multi.html", single.row = FALSE)
 ```
 
@@ -1032,7 +1031,7 @@ stargazer(finalModel, type = 'html', p.auto = FALSE, out="../Data/multi.html", s
 
 ```{r multiModelPerf}
 # examining how well the model performed on our entire dataset
-# Recall that we are fitting an explanatory model, and not a predictive model
+# Recall that we are fitting an explanatory model and not a predictive model
 predictedClass = predict(finalModel, df)
 saveRDS(finalModel, '../Data/finalModel.rds') # saving it
 
@@ -1050,7 +1049,7 @@ pander(confMatrix$overall)
 
 ```{r vizMultiModel}
 predictedProbs = fitted(finalModel) # computing predicted probabilities for each of the outcome levels
-mapResults = cbind(multiClassDF, predictedProbs) # col binding predProbs for each Cluster with multiClassDF
+mapResults = cbind(multiClassDF, predictedProbs) # col binding predProbs for each cluster with multiClassDF
 
 # Finding indices to subset the data
 numberOfClusters = unique(mapResults$cluster_group) %>% as.character() %>% length() 
