@@ -2,15 +2,15 @@
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # automatically set working dir
 
-pacman::p_load(tidyverse, COVID19, magrittr, lubridate, fpp2, zoo) # loading required packages
+pacman::p_load(tidyverse, COVID19, magrittr, lubridate, fpp2, zoo, tmap, albersusa, tigris, RColorBrewer) # loading required packages
 
 # National Data
 us = covid19(country = 'US', level = 1, start = '2020-03-01', end = '2021-01-02')
 us %<>% select(id, key_google_mobility, date, confirmed) %>% 
   mutate(newCases = c(NA, diff(confirmed)),
-         newMA7 = rollmeanr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
-         maxMA7 = max(newMA7, na.rm = T), # obtaining the max per county to scale data
-         scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE))
+         newMM7 = rollmedianr(newCases, k = 7, fill = NA), # 7-day mm of new (adjusted) cases
+         maxMM7 = max(newMM7, na.rm = T), # obtaining the max per county to scale data
+         scaledNewMM7 = pmax(0, newMM7/maxMM7, na.rm = TRUE))
 
 # Counties Data
 counties = covid19(country = 'US', level = 3, start = '2020-03-01', end = '2021-01-02',
@@ -18,9 +18,9 @@ counties = covid19(country = 'US', level = 3, start = '2020-03-01', end = '2021-
 
 counties %<>% select(id, key_google_mobility, date, confirmed) %>% 
   mutate(newCases = c(NA, diff(confirmed)),
-         newMA7 = rollmeanr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
-         maxMA7 = max(newMA7, na.rm = T), # obtaining the max per county to scale data
-         scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE))
+         newMM7 = rollmedianr(newCases, k = 7, fill = NA), # 7-day mm of new (adjusted) cases
+         maxMM7 = max(newMM7, na.rm = T), # obtaining the max per county to scale data
+         scaledNewMM7 = pmax(0, newMM7/maxMM7, na.rm = TRUE))
 
 indices = c('Alabama, Lee County', 'Arizona, Navajo County', 'California, San Francisco County',
             'Illinois, Madison County', 'New York, New York County','Ohio, Butler County',
@@ -35,8 +35,8 @@ df$key_google_mobility %<>% recode(US = 'Aggregate for the Entire US')
 
 # Facet Wrap Plot: nonScaledMotivationPlot
 png(filename = '../Figures/nonScaledMotivationPlot.png',
-     width = 1366, height =768, pointsize = 16)
-df %>% ggplot(aes(x = date, y = newMA7, group = id)) +
+     width = 1920, height =1080, pointsize = 16)
+df %>% ggplot(aes(x = date, y = newMM7, group = id)) +
   geom_line(size = 1.5) +
   scale_x_date(date_breaks = "1 month", date_labels = "%b") +
   facet_wrap(~ key_google_mobility, scales = 'free_y', ncol = 3) + 
@@ -49,8 +49,8 @@ invisible( dev.off() ) # to suppress the unwanted output from dev.off
 
 # Facet Wrap Plot: motivationPlot
 png(filename = '../Figures/motivationPlot.png',
-     width = 1366, height =768, pointsize = 16)
-df %>% ggplot(aes(x = date, y = scaledNewMA7, group = id)) +
+     width = 1920, height = 1080, pointsize = 16)
+df %>% ggplot(aes(x = date, y = scaledNewMM7, group = id)) +
   geom_line(size = 1.5) +
   scale_x_date(date_breaks = "1 month", date_labels = "%b") +
   facet_wrap(~ key_google_mobility, scales = 'free_y', ncol = 3) + 
@@ -60,83 +60,68 @@ df %>% ggplot(aes(x = date, y = scaledNewMA7, group = id)) +
        caption = 'Based on data from 2020-03-01 to 2021-01-02')
 invisible( dev.off() ) # to suppress the unwanted output from dev.off
 
-# SampleCountiesOct17: Plot
-indexesForPlot = unique(counties$key_google_mobility) %>% sample(9)
-
-counties %>% filter(key_google_mobility %in% indexesForPlot) %>% 
-  ggplot(aes(x = date, y = confirmed, group = id, color = key_google_mobility)) +
-  geom_line(size = 1.5) +
-  facet_wrap(~ key_google_mobility, scales = 'free_y', ncol = 3) + 
-  theme_bw(base_size = 24) + 
-  theme(legend.position = 'none') + 
-  labs(color = '', x = 'Month', y = 'Cumulative Confirmed Cases By County') +
-  scale_color_brewer(type = 'qual', palette = 'Paired')
 
 
-# Single New Cases Plot
-counties %>% filter(key_google_mobility == 'California, San Bernardino County') %>% 
-  ggplot(aes(x = date, y = newCases)) +
-  geom_line(size =1.5) + theme_bw(base_size = 30) + 
-  labs(x = 'Month', y = 'MA(7) of New Cases') +
-  scale_color_brewer(type = 'qual', palette = 'Set2')
+# CDC Plot
+crossSectionalData <- readRDS("../Data/crossSectionalData.rds")
+crossSectionalData$fips = str_pad(crossSectionalData$key_numeric,
+                                  width = 5, side = 'left', pad = '0')
+# Retrieving the U.S. state composite map as a simplefeature
+state_sf = usa_sf("aeqd") %>% filter(!name %in% c('Alaska', 'Hawaii')) # from albersua
+state_sf %<>% geo_join(crossSectionalData, by_sp= 'name', by_df= 'administrative_area_level_2')
+
+postscript(file = '../Figures/cdcRegions.eps', width = 1920, height = 1080, pointsize = 16)
+tm_shape(state_sf) + tm_polygons('regions', title = 'Region', palette = "Paired")
+invisible( dev.off() ) # to suppress the unwanted output from dev.off
 
 
-mapData = counties %>% ungroup() %>% 
-  select(key_numeric, administrative_area_level_2, administrative_area_level_3,
-         countyType, popDensity, percRepVotes, governorsParty, regions,
-         PercentSeniors, icuBedsPer10000Residents, povertyPercent) %>% 
-  unique()
-write.csv(mapData, file = 'mapData.csv', row.names = F)
+# Cluster Counties
+endDate = '2021-01-02'
+endDatePrintV = format(ymd(endDate), format = "%b %d, %Y")
 
+clusterCounties <- readRDS("../Data/clusterCounties.rds")
+clusterCounties$fips = str_pad(clusterCounties$key_numeric, width = 5, side = 'left', pad = '0')
+clusterCounties %<>% ungroup()
+clusterCounties$cluster_group %<>% as.factor()
+  
+colorPal =  brewer.pal(n= levels(clusterCounties$cluster_group) %>% length(), 'Set2')
+names(colorPal) = levels(clusterCounties$cluster_group)
 
-# CDC Plot in R
-# Counties
-pacman::p_load(maps, tidyverse, r2d3maps, magrittr, albersusa, tigris, leaflet)
+cty_sf = counties_sf("aeqd") %>% filter(!state %in% c('Alaska', 'Hawaii')) # from albersusa
+cty_sf %<>% left_join(clusterCounties[, c('fips', 'cluster_group')], by = 'fips') # adding cluster_group to cty_sf
 
-state_sf = usa_sf("longlat") %>% filter(!name %in% c('Alaska', 'Hawaii')) # from albersua
+png(filename = '../Figures/clusterMap.png', width = 1920, height =1080, pointsize = 16)
+tm_shape(cty_sf) + tm_polygons('cluster_group', title = 'Cluster #', palette = colorPal) +
+  tm_credits(paste0('Based on Data from March 01, 2020 - ', endDatePrintV), position=c("right", "bottom"))
+invisible( dev.off() ) # to suppress the unwanted output from dev.off
 
-counties %>% ungroup() %>%  select(administrative_area_level_2, regions) %>% unique() -> dfCDC
-dfCDC$regions = gsub('\\.', ' ', dfCDC$regions) %>% as.factor()
+postscript(file = '../Figures/clusterMap.eps', width = 1920, height =1080, pointsize = 16)
+tm_shape(cty_sf) + tm_polygons('cluster_group', title = 'Cluster #', palette = colorPal) +
+  tm_credits(paste0('Based on Data from March 01, 2020 - ', endDatePrintV), position=c("right", "bottom"))
+invisible( dev.off() ) # to suppress the unwanted output from dev.off
 
-state_sf %<>% geo_join(dfCDC, by_sp= 'name', by_df= 'administrative_area_level_2')
+# Cluster Match
+finalModel <- readRDS("../Data/finalModel.rds")
+multiClassDF <- readRDS("../Data/multiClassDF.rds")
+predictedProbs = fitted(finalModel) # computing predicted probabilities for each of the outcome levels
+mapResults = cbind(multiClassDF, predictedProbs) # col binding predProbs for each cluster with multiClassDF
 
-d3map = d3_map(shape = state_sf, projection = "Albers", height = 768) %>%
-  add_discrete_scale(var = "regions", palette = "Paired") %>%
-  add_legend(title = "")
+# Finding indices to subset the data
+numberOfClusters = unique(mapResults$cluster_group) %>% as.character() %>% length() 
+startCol = ncol(mapResults) - numberOfClusters + 1
+endCol = ncol(mapResults)
 
-d3map
+# Finding whether the predicted and actual clusters matched for each county
+mapResults$LargestProbCluster = colnames(mapResults[, startCol:endCol])[apply(mapResults[, startCol:endCol], 1, which.max)] 
+mapResults$match = ifelse(mapResults$cluster_group == mapResults$LargestProbCluster, 'Yes', 'No') %>% as.factor()
 
-r2d3::save_d3_png(d3map, file = 'cdcRegionsV1.png', 
-                  width = 1366, height = 768, zoom = 1, delay = 3)
+# Retrieving the U.S. county composite map as a simplefeature (since it has been overwritten)
+cty_sf = counties_sf("aeqd") %>% filter(!state %in% c('Alaska', 'Hawaii')) # from albersusa
+cty_sf %<>% geo_join(mapResults, by_sp= 'fips', by_df= 'fips')
 
-
-
-# Improving the Resolution of the 4 Clusters Map
-cty_sf = counties_sf("longlat") %>% # from albersusa package
-  filter(!state %in% c('Alaska', 'Hawaii'))
-
-# ungrouping clusterCounties and selecting just the two variables needed for the clustering
-LeafletCounties = clusterCounties %>% ungroup() %>%
-  dplyr::select(key_numeric, administrative_area_level_2, administrative_area_level_3, cluster_group, popDensity, povertyPercent)
-colnames(LeafletCounties) = c('key_numeric', 'NAME_1', 'NAME_2', 'value', 'popDensity', 'povertyPercent')
-
-# Converting the key_numeric to a proper FIPS_Code and then to a factor variable
-LeafletCounties$key_numeric %<>% str_pad(width = 5, side = 'left', pad = '0') %>% as.factor()
-
-LeafletCounties = cty_sf %>% geo_join(LeafletCounties, by_sp = "fips", by_df = "key_numeric")
-LeafletCounties %<>%  mutate( value = paste0('C', value) )
-LeafletCounties %<>% mutate_at(vars(value), na_if, 'CNA') %>% 
-  mutate(value = as.factor(value))
-
-
-# using same color scheme as the static one
-myPal = colorFactor('Set2', domain = LeafletCounties$value, na.color = "white")
-
-d3map = d3_map(shape = LeafletCounties, projection = "Albers", height = 768) %>%
-  add_discrete_scale(var = "value", palette = "Set2") %>%
-  add_legend(title = "")
-
-d3map
-
-r2d3::save_d3_png(d3map, file = 'CountiesClustered.png', 
-                  width = 1366, height = 768, zoom = 1, delay = 3)
+# Creating a static visual for use in the paper
+postscript(file = '../Figures/clusterMatchMap.eps', width = 1366, height =768, pointsize = 16)
+tm_shape(cty_sf) + tm_polygons('match', title = 'Cluster Match', style = 'cont', palette = "div") +
+  tm_layout(aes.palette = list(div = list("Yes" = "#CAB2D6", "No" = "#6A3D9A"))) +
+  tm_credits(paste0('Based on Data from March 01, 2020 - ', endDatePrintV), position=c("right", "bottom"))
+invisible( dev.off() ) # to suppress the unwanted output from dev.off
