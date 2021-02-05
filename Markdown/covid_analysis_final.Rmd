@@ -5,8 +5,6 @@ author:
     affiliation: Farmer School of Business, Miami University
   - name: "Allison Jones-Farmer ^[Email: farmerl2@miamioh.edu | Phone: +1-513-529-4823 | Website: <a href=\"https://miamioh.edu/fsb/directory/?up=/directory/farmerl2\">Miami University Official</a>]"
     affiliation: Farmer School of Business, Miami University
-  - name: "Longwen Zhao ^[Email: longwen.zhao@slu.edu | Website: <a href=\"https://www.linkedin.com/in/longwen-zhao-06916486\">LinkedIn Site</a>]"
-    affiliation: College of  Public Health and Social Justice, Saint Louis University
   - name: "Steve Rigdon ^[Email: steve.rigdon@slu.edu | Website: <a href=\"https://www.slu.edu/public-health-social-justice/faculty/rigdon-steven.php\">Saint Louis University Official</a>]"
     affiliation: College of  Public Health and Social Justice, Saint Louis University
 bibliography: covidRefs.bib
@@ -61,8 +59,7 @@ pacman::p_load(tidyverse, magrittr, janitor, dataPreparation, lubridate, skimr, 
                scales, RColorBrewer, DataExplorer, tiff, grid,# for plots
                plotly, albersusa, tigris, leaflet, tmap, # for maps
                zoo, fpp2, NbClust, # for TS analysis and clustering
-               VIM, rgdal,  spdep,  nimble, fastDummies, matrixStats, # for spatial regression 
-               nnet, caret, # for multinomial regression modeling
+               VIM, nnet, caret, MuMIn, # for multinomial regression modeling
                conflicted) # for managing conflicts in functions with same names
 
 # Handling conflicting function names from packages
@@ -429,7 +426,7 @@ tm_shape(cty_sf) + tm_polygons('povertyPercent', title = 'Poverty Percent', pale
 
 It is important to note that, in our estimation, there are three important decisions to be made when performing time-series clustering:  
 
-  - *Preparation of the Different Time-Series to be Clustered*  In this section, we have (a) selected the new daily cases per county as the primary variable of interest, (b) smoothed that variable using a seven-day moving average, and (c) scaled the observations within each county’s 7-day MA of new daily deaths such that it is bounded between 0 and 1. This allows us to compare the **shape** of the time-series/profile across counties of different populations and where the magnitude of the cases is quite different.
+  - *Preparation of the Different Time-Series to be Clustered*  In this section, we have (a) selected the new daily cases per county as the primary variable of interest, (b) smoothed that variable using a seven-day moving average, and (c) scaled the observations within each county’s 7-day moving median of new daily deaths such that it is bounded between 0 and 1. This allows us to compare the **shape** of the time-series/profile across counties of different populations and where the magnitude of the cases is quite different.
   
   - *Choice of Distance Measure: The Euclidean distance*, The Euclidean Distance i.e., the $l_2$ norm, is the most commonly used distance measure since it is computationally efficient. However, it may not be suitable for applications where the time-series are of different length in addition to being sensitive to noise, scale and time shifts [@sarda2017comparing].  
   
@@ -442,11 +439,11 @@ It is important to note that, in our estimation, there are three important decis
 clusteringPrep = counties %>% # from the counties
   select(id, date, key_google_mobility, newCases) %>% # selecting minimal amount of cols for visual inspection
   arrange(id, date) %>% # arranged to ensure correct calculations
-  mutate(newMA7 = rollmedianr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) cases
-         maxMA7 = max(newMA7, na.rm = T), # obtaining the max per county to scale data
-         scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE) ) %>% # scaling data to a 0-1 scale by county
-  select(id, key_google_mobility, date, scaledNewMA7) %>% # dropping the variable newCases
-  pivot_wider(names_from = date, values_from = scaledNewMA7) # converting the data to a wide format for clustering
+  mutate(newMM7 = rollmedianr(newCases, k = 7, fill = NA), # 7-day moving median of new (adjusted) cases
+         maxMA7 = max(newMM7, na.rm = T), # obtaining the max per county to scale data
+         scalednewMM7 = pmax(0, newMM7/maxMA7, na.rm = TRUE) ) %>% # scaling data to a 0-1 scale by county
+  select(id, key_google_mobility, date, scalednewMM7) %>% # dropping the variable newCases
+  pivot_wider(names_from = date, values_from = scalednewMM7) # converting the data to a wide format for clustering
 
 constantColumns  = which_are_constant(clusteringPrep, verbose = F) # identifying constant columns
 datesDropped = colnames(clusteringPrep)[constantColumns] # used for printing the names after the code chunk
@@ -457,7 +454,7 @@ row.names(clusteringPrep) = clusteringPrep[,1] # needed for tsclust
 clusteringPrep = clusteringPrep[,-1] # dropping the id column since it is now row.name
 ```
 
-The following dates were removed from our data frame since the `scaledNEWMA7` variable was constant across all counties: `r pander(datesDropped, compact = TRUE)`.
+The following dates were removed from our data frame since the `scalednewMM7` variable was constant across all counties: `r pander(datesDropped, compact = TRUE)`.
 
 
 ## Clustering Contiguous U.S. Counties
@@ -512,10 +509,10 @@ spaghettiDF = counties %>% # from the counties
   select(id, date, newCases, key_google_mobility) %>% # selecting minimal columns
   left_join(clusterCounties[, c('id', 'cluster_group')], by = 'id') %>% # to get clusters
   arrange(id, date) %>% # arranged to ensure correct calculations
-  mutate(newMA7 = rollmedianr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) deaths
-         maxMA7 = max(newMA7, na.rm = T), # obtaining the max per county to scale data
-         scaledNewMA7 = pmax(0, newMA7/maxMA7, na.rm = TRUE) ) %>% 
-  ungroup() %>% select(date, cluster_group, scaledNewMA7, key_google_mobility) %>% 
+  mutate(newMM7 = rollmedianr(newCases, k = 7, fill = NA), # 7-day ma of new (adjusted) deaths
+         maxMA7 = max(newMM7, na.rm = T), # obtaining the max per county to scale data
+         scalednewMM7 = pmax(0, newMM7/maxMA7, na.rm = TRUE) ) %>% 
+  ungroup() %>% select(date, cluster_group, scalednewMM7, key_google_mobility) %>% 
   group_by(date, cluster_group)
 
 spaghettiDF$cluster_group %<>% as.factor() 
@@ -527,7 +524,7 @@ names(colorPal) = levels(spaghettiDF$cluster_group)
 # Saving spaghetti plot to an tiff file
 tiff(filename = '../Figures/spaghettiPlot.tiff', width = 1366, height =768, pointsize = 16)
 spaghettiDF %>%  
-  ggplot(aes(x = date, y = scaledNewMA7, color = cluster_group, group = key_google_mobility)) +
+  ggplot(aes(x = date, y = scalednewMM7, color = cluster_group, group = key_google_mobility)) +
   scale_x_date(date_breaks = "1 month", date_labels = "%b") +
   geom_line(size = 0.25, alpha = 0.1) +
   stat_summary(aes(group = 1), 
@@ -551,9 +548,9 @@ readTIFF("../Figures/spaghettiPlot.tiff") %>% grid.raster()
 ```{r summaryPlot}
 # Creating a data frame containing statistical summaries of the time series by cluster_group
 summaryDf = spaghettiDF %>% 
-  summarise(Median = median(scaledNewMA7, na.rm= TRUE),
-            `First Quartile` = quantile(scaledNewMA7, probs = 0.25, na.rm= TRUE),
-            `Third Quartile` = quantile(scaledNewMA7, probs = 0.75, na.rm= TRUE)) %>% 
+  summarise(Median = median(scalednewMM7, na.rm= TRUE),
+            `First Quartile` = quantile(scalednewMM7, probs = 0.25, na.rm= TRUE),
+            `Third Quartile` = quantile(scalednewMM7, probs = 0.75, na.rm= TRUE)) %>% 
   pivot_longer(cols = c(`First Quartile`, Median, `Third Quartile`),
                         names_to = 'Statistic')
 
@@ -638,7 +635,7 @@ multiClassDF %>% plot_boxplot(by = 'cluster_group', ncol = 2L,
 ```
 
 
-## Explanatory Modeling Using Multinomial Spatial Regression
+## Explanatory Modeling Using Multinomial Regression
 
 ### Data Preparation
 
@@ -659,352 +656,6 @@ df  = df %>% select(-c(cluster_group, # removed since it is now redundant with t
 saveRDS(df, '../Data/df.rds') # saving the data
 ```
 
-### Model Building
-
-```{r spatialModelBuild}
-multiClassDF.sorted = df[order(df$fips), ]
-
-# File needs to be downloaded from 
-# https://www2.census.gov/geo/tiger/TIGER2016/COUNTY/tl_2016_us_county.zip
-shape =  readOGR('J:/My Drive/Miami/Code/GitHub/covid/Data', "tl_2016_us_county")
-shape_sp = st_as_sf(shape)
-
-# Joining both the clustered data and the shape file in one object
-joinedMultiClass = geo_join(shape_sp, multiClassDF.sorted, by_sp = 'GEOID', by_df ='fips',how = 'inner')
-joinedMultiClass.sorted = joinedMultiClass[order(joinedMultiClass$GEOID), ]
-
-# Building a neighborhood list from the shape data
-nbList = poly2nb(joinedMultiClass.sorted) %>% 
-  nb2listw(style = 'W', zero.policy = TRUE) # converting it to a listw object
-
-# Identifying the number of neighbors per county
-numCounties = length(nbList$neighbours) # number of counties
-numNeighbors = rep(0, numCounties) # number of neighbors for each county
-for (i in 1:numCounties)  numNeighbors[i] = length(nbList$neighbours[[i]])
-
-# Identifying the fips of the neighbor counties
-fipsOfNeighbourCounties = c() # initialization
-for (i in 1:numCounties) fipsOfNeighbourCounties = c(fipsOfNeighbourCounties, nbList$neighbours[[i]] )
-
-# Pre-nimble parameters
-sumNumNeigh = length(fipsOfNeighbourCounties)
-m = length(numNeighbors)
-
-# Preparing the outcome
-number_of_clusters = unique(multiClassDF.sorted$clustReLeveled) %>% length()
-cluster_group_matrix = matrix( 0 , nrow = m, ncol = number_of_clusters)
-cluster_group_nu = str_remove(multiClassDF.sorted$clustReLeveled, 'C') %>% as.numeric()
-
-for (i in 1:m)
-{
-  cluster_group_matrix[ i , cluster_group_nu[i] ] = 1
-}
-
-## Storing each predictor in a vector
-countyType = multiClassDF.sorted$countyType
-Underserved = fastDummies::dummy_cols(countyType)
-Underserved.rural = Underserved$`.data_Rural/Underserved` %>% as.matrix() %>% as.vector()
-popDensity = log(multiClassDF.sorted$popDensity) %>% as.matrix() %>% as.vector()
-GovernmentResponseIndexMedian = multiClassDF.sorted$GovernmentResponseIndexMedian %>% as.matrix() %>% as.vector()
-PercentSeniors = multiClassDF.sorted$PercentSeniors %>% as.matrix() %>% as.vector()
-povertyPercent = multiClassDF.sorted$povertyPercent %>% as.matrix() %>% as.vector()
-regions = multiClassDF.sorted$regions
-
-results = dummy_cols(regions)
-A = results$.data_A
-B = results$.data_B
-C = results$.data_C
-D = results$.data_D
-E = results$.data_E
-FF = results$.data_F
-G = results$.data_G
-H = results$.data_H
-I = results$.data_I
-
-
-
-# Nimble Code spatial
-code = nimbleCode(
-  {
-    for (i in 1:m)
-    {
-      cluster_group_matrix[i,1:number_of_clusters] ~ dmulti( prob = p[i,1:number_of_clusters] ,1) 
-      phi[i,1] <- 1
-      p[i,1] <- 1/sum(phi[i,1:number_of_clusters])
-      for (k in 2:number_of_clusters)
-      {
-        log(phi[i,k]) <- b0[k] + b1[k]*Underserved.rural[i] + 
-          b2[k]*popDensity[i] +
-          b3[k]*PercentSeniors[i] + 
-          b4[k]*GovernmentResponseIndexMedian[i] + 
-          b5[k]*povertyPercent[i] + b6[k]*A[i] + b7[k]*B[i] + 
-          b8[k]*C[i] + b9[k]*D[i] + b10[k]*E[i] + b11[k]*F[i] + b12[k]*G[i] + b13[k]*H[i] + b14[k]*I[i] + u[i]
-        p[i,k] <- phi[i,k]/sum(phi[i,1:number_of_clusters])
-      }
-    }    
-    for (k in 2:number_of_clusters) 
-    {
-      b0[k] ~ dnorm(0, 0.00001); b1[k] ~ dnorm(0, 0.00001); b2[k] ~ dnorm(0, 0.00001)
-      b3[k] ~ dnorm(0, 0.00001); b4[k] ~ dnorm(0, 0.00001); b5[k] ~ dnorm(0, 0.00001)
-      b6[k] ~ dnorm(0, 0.00001); b7[k] ~ dnorm(0, 0.00001); b8[k] ~ dnorm(0, 0.00001)
-      b9[k] ~ dnorm(0, 0.00001); b10[k] ~ dnorm(0, 0.00001); b11[k] ~ dnorm(0, 0.00001)
-      b12[k] ~ dnorm(0, 0.00001); b13[k] ~ dnorm(0, 0.00001); b14[k] ~ dnorm(0, 0.00001)
-    }
-    u[1:m] ~ dcar_normal(adj[1:sumNumNeigh], weights[1:sumNumNeigh], 
-                         num[1:m],tauu)
-    for (j in 1:sumNumNeigh)
-    {weights[j] <- 1}
-    tauu ~ dgamma(1,0.0001)
-  }
-)  
-
-constants = list(num=numNeighbors, adj=fipsOfNeighbourCounties,
-                  sumNumNeigh = length(fipsOfNeighbourCounties), 
-                  m=m,number_of_clusters=number_of_clusters)
-
-data = list(cluster_group_matrix = cluster_group_matrix, 
-             Underserved.rural = Underserved.rural,
-             popDensity = popDensity,
-             PercentSeniors = PercentSeniors,
-             GovernmentResponseIndexMedian = GovernmentResponseIndexMedian,
-             povertyPercent = povertyPercent,
-             A=A, B=B, C=C, D=D, E=E, F=FF,
-             G=G, H=H, I=I)
-
-inits = list(b0=rep(0, number_of_clusters), u=rep(0,m),tauu=1, b1=rep(0, number_of_clusters), 
-             b2=rep(0, number_of_clusters), b3=rep(0, number_of_clusters), b4=rep(0, number_of_clusters),
-             b5=rep(0, number_of_clusters), b6=rep(0, number_of_clusters), b7=rep(0, number_of_clusters), 
-             b8=rep(0, number_of_clusters), b9=rep(0, number_of_clusters), b10=rep(0, number_of_clusters),
-             b11=rep(0, number_of_clusters), b12=rep(0, number_of_clusters), b13=rep(0, number_of_clusters),
-             b14=rep(0, number_of_clusters) )
-
-Rmodel = nimbleModel(code=code, constants=constants, data=data, inits=inits)
-
-compile.Rmodel = compileNimble( Rmodel )
-
-monitors = c('b0','b1','b2','b3','b4','b5','b6','b7','b8',
-              'b9','b10','b11','b12','b13','b14','p','tauu')
-
-Rmodel.Conf = configureMCMC( Rmodel , monitors=monitors, thin = 100)
-
-Rmodel.MCMC = buildMCMC( Rmodel.Conf )
-compile.Rmodel.MCMC = compileNimble( Rmodel.MCMC )
-
-niter = 300000
-nburn = 150000
-
-start.time = proc.time()
-spatial.base6 = runMCMC( compile.Rmodel.MCMC, niter = niter, nburnin = nburn,
-                         inits = inits, nchains = 1, samplesAsCodaMCMC = TRUE )
-stop.time = proc.time()
-time.elapsed = stop.time - start.time
-print( time.elapsed )
-```
-
-## Resulting Model
-```{r spatialModelCoef, results = 'asis'}
-Betacoe = spatial.base6[, (1:(15*number_of_clusters))] # based on current number of predictors
-saveRDS(Betacoe, '../Data/betacoe.rds') # saving the data
-
-# Computing the coefficients' values
-coeffTable = rbind(colMeans(Betacoe), apply(Betacoe, 2, HDIofMCMC))
-rownames(coeffTable) = c('means', 'LCI', 'UCI')
-
-# Formating the output
-coeffTable %<>% as.data.frame() %>% 
-  select(paste0(paste0("b", rep(seq(0, 14), number_of_clusters)), '[', 
-                sort(rep(1:number_of_clusters, 15)),
-                ']' )) %>% # reordering cols by name
-  select_if(~ !any(is.na(.)))  # dropping NA cols (corresponding to Cluster 1)
-
-tCoeffTable = t(coeffTable)
-
-tCoeffTable = cbind(tCoeffTable[1:15,], tCoeffTable[16:30,]) %>% data.frame()
-row.names(tCoeffTable) = c('constant', 'rural', 'popDensity', 'percSeniors',
-                           'govResponse', 'percPoverty', 'regionA', 'regionB', 'regionC',
-                           'regionD', 'regionE', 'regionF', 'regionG', 'regionH',
-                           'regionI')
-colnames(tCoeffTable) = c('C2_mean', 'C2_LCI', 'C2_UCI',
-                          'C3_mean', 'C3_LCI', 'C3_LCI')
-
-tCoeffTable %>% round(digits = 3) %>% datatable(
-          extensions = c('FixedColumns', 'Buttons'), options = list(
-            pageLength = 15,
-            dom = 'Bfrtip',
-            scrollX = TRUE,
-            buttons = c('copy', 'csv', 'excel', 'pdf'),
-            fixedColumns = list(leftColumns = 1)))
-```
-
-## Model's Performance
-
-```{r spatialModelResults}
-samples_p = spatial.base6[, -(1:(number_of_clusters*15))]
-samples_p_mean = colMeans(exp(samples_p[, 1:(number_of_clusters*m)]))
-C1 = samples_p_mean[1:3108]
-C2 = samples_p_mean[3109:6216]
-C3 = samples_p_mean[6217:9324]
-pred.0 = cbind(C1, C2, C3) 
-pred = rep(NA, m)
-for (i in 1:m) {
-  vec = pred.0[i, 1:number_of_clusters]
-  pred[i] = which.max(vec)
-}
-
-predicted.spatial = cbind(pred, multiClassDF.sorted[, 'fips']) 
-colnames(predicted.spatial) = c('pred', 'fips')
-
-predSpatialFinal = merge(predicted.spatial, multiClassDF.sorted[, c('clustReLeveled', 'fips')],
-                         by = 'fips')
-
-predSpatialFinal$clustReLeveled %<>%  str_remove('C')
-saveRDS(predSpatialFinal, '../Data/predSpatialFinal.rds') # saving the data
-
-
-# Computing the Confusion Metrics and By Class Metrics
-confMatrix = confusionMatrix(as.factor(predSpatialFinal$pred), 
-                             as.factor(predSpatialFinal$clustReLeveled))
-saveRDS(confMatrix, '../Data/confMatrixSpatialModel.rds') # saving the data
-
-# Printing the Resulting tables nicely
-pander(confMatrix$table)
-pander(confMatrix$byClass)
-pander(confMatrix$overall)
-```
-
-
-
-
-## Visualizing the Model's Outcomes
-```{r vizSpatialModel}
-###Visualizing the Model’s Predictions
-predSpatialFinal = readRDS('../Data/predSpatialFinal.rds') # saving the data
-predSpatialFinal$match = ifelse(predSpatialFinal$pred == predSpatialFinal$clustReLeveled, "Yes", "No") %>%
-  as.factor()
-
-mapResults = predSpatialFinal
-mapResults$fips %<>% as.factor()
-
-# Retrieving the U.S. county composite map as a simplefeature (since it has been overwritten)
-counties_sf = counties_sf("aeqd") %>% filter(!state %in% c('Alaska', 'Hawaii')) # from albersua
-counties_sf %<>% geo_join(mapResults, by_sp= 'fips', by_df= 'fips')
-
-
-# Creating a static visual for use in the paper
-tiff(filename = '../Figures/clusterMatchMapSpatial.tiff', width = 1366, height =768, pointsize = 16)
-tm_shape(counties_sf) + tm_polygons('match', title = 'Cluster Match', style = 'cont', palette = "div") +
-  tm_layout(aes.palette = list(div = list("Yes" = "#CAB2D6", "No" = "#6A3D9A"))) +
-  tm_credits(paste0('Based on Data from March 01, 2020 - ', endDatePrintV), position=c("right", "bottom"))
-invisible( dev.off() ) # to suppress the unwanted output from dev.off
-
-
-# Creating a longlat projection (required by leaflet)
-leaflet_sf = counties_sf("longlat") %>% filter(!state %in% c('Alaska', 'Hawaii')) # from albersua
-leaflet_sf %<>% geo_join(mapResults, by_sp= 'fips', by_df= 'fips')
-
-leafletPal = colorFactor(palette = c("#CAB2D6", "#6A3D9A"), levels = c('Yes', 'No'), na.color = "white")
-
-leaflet(height = 500) %>% 
-  setView(lng = -96, lat = 37.8, zoom = 3.8) %>%
-  addTiles() %>%
-  addPolygons(data = leaflet_sf, stroke = FALSE, fillColor = ~leafletPal(leaflet_sf$match),
-              weight = 2, opacity = 1, color = "white", dashArray = "3", fillOpacity = 0.7,
-              popup = paste("County:", leaflet_sf$name, '<br>', 
-                            "Cluster #:", leaflet_sf$clustReLeveled, '<br>',
-                            "Cluster Predicted:", leaflet_sf$pred, '<br>',
-                            "Cluster Match:", leaflet_sf$match, '<br>')) %>% #pop-up menu items
-  addLegend(position = "bottomleft", pal = leafletPal, values =  leaflet_sf$match, 
-            title = "Cluster Match", opacity = 1)
-```
-
-
-## Trace Plots {.tabset .tabset-fade .tabset-pills}
-```{r trace, results='asis'}
-Betacoe = readRDS('../Data/betacoe.rds') # saving the data
-
-Betacoe %<>% as.data.frame() %>%  
-  select(paste0(paste0("b", rep(seq(0, 14), number_of_clusters)), '[',
-                sort(rep(1:number_of_clusters, 15)),
-                ']' )) %>% # reordering cols by name
-  select_if(~ !any(is.na(.)))  # dropping NA cols (corresponding to Cluster 1)
-
-BetacoeLonger = Betacoe %>% pivot_longer(cols = starts_with('b'))
-BetacoeLonger = cbind(obs = row.names(BetacoeLonger), BetacoeLonger)
-
-# For loop below is used to create a panel of trace plots for each cluster
-## results are shown in the three tabs below
-for (counter in 2:number_of_clusters) {
-  temp = BetacoeLonger %>% filter(str_detect(name, paste0('\\[', counter, '\\]'))) # since cluster number is between square brackets
-  temp$name %<>% str_replace_all("\\[|.\\]", "") # to remove the square bracket and its components from the name
-  
-  temp$name %<>% recode(b0 = 'constant', b1 = 'rural', b2 = 'popDensity', b3 = 'percSeniors',
-                        b4 = 'govResponse', b5 = 'percPoverty', b6 = 'regionA', b7 = 'regionB',
-                        b8 = 'regionC', b9 = 'regionD', b10 = 'regionE', b11 = 'regionF',
-                        b12 = 'regionG', b13 = 'regionH', b14 = 'regionA') 
- 
-  temp %<>% arrange(name, obs) 
-  temp$obs = rep(seq(1,1500), 15)
-   
-  temp %>% ggplot(aes(x = obs, y = value)) + geom_line() + 
-    labs(x = 'Observation Number', y = 'Coefficient Value', 
-         title = paste('Trace Plot for the Coefficients of Cluster', counter), 
-         caption = 'Based on 1500 recorded simulation observations (thinned by 100)') +
-    facet_wrap(~name, ncol = 3, scales = 'free_y') + theme_bw() -> traceplot
-  
-  ggsave(filename = paste0('../Figures/tracePlotCluster0', counter, '.tiff'),
-         plot = traceplot, device = 'tiff', dpi = 600)
-  
-  cat('\n \n')
-  
-  cat('###', paste0("Cluster ", counter), "{-}",'\n')
-  
-  
-  print(traceplot)
-  
-  cat('\n') # new line
-  cat('\n')
-  cat('\n')
-}
-
-cat('\n \n')
-
-cat('### tauU', "{-}",'\n')
-tauU = spatial.base6[,'tauu']
-
-# converting the tauU to a data.frame to facilitate plotting
-tauU = data.frame(obs = seq(1,1500), tauU = as.numeric(tauU))
-  
-tauU %>% ggplot(aes(x = obs, y = tauU)) + geom_line() + 
-    labs(x = 'Observation Number', y = 'tauU Value', 
-         title = paste('Trace Plot for the tauU Hyperparamater', counter), 
-         caption = 'Based on 1500 recorded simulation observations (thinned by 100)') +
-  theme_bw() -> traceplot
-
-ggsave(filename = paste0('../Figures/tracePlotTauU', counter, '.tiff'),
-         plot = traceplot, device = 'tiff', dpi = 600)
-
-print(traceplot)
-```
-
-
-
----
-
-# References
-<div id="refs"></div>
-
----
-
-# Appendices
-
-## Appendix A: Packages Used
-In the appendix, we print all the R packages used in our analysis and their versions to assist with reproducing our results/analysis.
-
-```{r sessionInfo}
-pander(sessionInfo(), compact = TRUE) # printing the session info for reproducibility
-```
-
-## Appendix B: Baseline Multinomial Model
 
 ### Model Building
 
@@ -1092,4 +743,56 @@ leaflet(height=500) %>% # initializing the leaflet map
                             "Cluster Match:", leaflet_sf$match, '<br>')) %>% #pop-up Menu
   addLegend(position = "bottomleft", pal = leafletPal, values =  leaflet_sf$match, 
             title = "Cluster Match", opacity = 1) # legend formatting
+```
+
+### A Note on Our Predictive Performance
+
+In the code chunk below, we capitalize on the [MuMIn package](https://cran.r-project.org/web/packages/MuMIn/MuMIn.pdf) to generate a model selection table of models with combinations (subsets) of fixed effect terms in the global model. More specifically, the code below identifies the combination of predictors (and hence the number of model parameters) that would minimize the AIC.
+
+
+```{r noteMultinomial}
+dfNoNAs <- na.omit(df) # since the MuMIn package expects no NAs in the data frame
+fm <-  quiet(multinom(clustReLeveled ~ ., data = dfNoNAs, na.action = na.fail)) # create model
+ms <- quiet(dredge(fm, rank = 'AIC')) # generating the model selection table
+
+# Printing the models with the lowest AIC first
+datatable(ms %>% as.data.frame() %>% select(-c(delta, weight)),
+          extensions = c('FixedColumns', 'Buttons'), options = list(
+            dom = 'Bfrtip',
+            scrollX = TRUE,
+            buttons = c('copy', 'csv', 'excel', 'pdf', 'print'),
+            fixedColumns = list(leftColumns = 0, rightColumns = 3)),
+          rownames = FALSE) %>% 
+  formatRound(columns= c('logLik', 'AIC'), digits=0)
+```
+
+With the use of an alternative model selection criterion and this evaluation, we confirm that the optimal multinomial regression model:  
+
+  - includes the variables denoted with a '+' sign (in the first row of the printed table);  
+  - contains `r round(ms[1,] %>% as.data.frame() %>% select(df), 0)` parameters in the model;  
+  - results in a logLik values of `r round(ms[1,] %>% as.data.frame() %>% select(logLik), 0 )`; and  
+  - results in a minimum AIC of `r round(ms[1,] %>% as.data.frame() %>% select(AIC), 0 )`.
+
+
+
+# Concluding Remarks
+In this R Markdown document, we have shown that our proposed two stage framework for modeling the smoothed and scaled time series of new daily cases can provide insights into the shape of the outbreak's time-series and some of its associated factors. Specifically, we have shown that:  
+
+  - On a county-level, the time series of COVID-19 new daily cases can be clustered into `r unique(mapResults$cluster_group) %>% length() ` clusters.   
+  - Using a multinomial regression model, we have shown/quantified the impact of the following factors: `r select(multiClassDF, -c(fips, cluster_group)) %>% colnames() %>% pander() ` on the odds of being in a specific cluster when compared to the baseline.
+
+
+---
+
+# References
+<div id="refs"></div>
+
+---
+
+# Appendix
+In the appendix, we print all the R packages used in our analysis and their versions to assist with reproducing our results/analysis.
+
+## Appendix
+```{r sessionInfo}
+pander(sessionInfo(), compact = TRUE) # printing the session info for reproducibility
 ```
