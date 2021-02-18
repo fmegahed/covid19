@@ -5,7 +5,12 @@ if(!is.null(dev.list())) dev.off() # clear plots
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # set directory
 
 # Loading the required packages
-pacman::p_load(tidyverse, magrittr, caret, h2o, bit64, DT, pander)
+if(require(h2o)==FALSE) install.packages("h2o", type = "source", repos = (c("http://h2o-release.s3.amazonaws.com/h2o/latest_stable_R")))
+pacman::p_load(tidyverse, tidyquant, magrittr, timetk,
+               COVID19,
+               NbClust, caret, 
+               h2o, bit64, 
+               DT, pander)
 
 # read the data (will need to change the extension)
 df = readRDS('../Data/df.rds')
