@@ -49,8 +49,6 @@ if(require(devtools)==FALSE) install.packages("devtools") # check to see if the 
 
 # to check and install if these packages are not found locally on machine
 if(require(albersusa)==FALSE) devtools::install_github('hrbrmstr/albersusa') #install package if needed
-if(require(albersusa)==FALSE) devtools::install_github('dreamRs/r2d3maps') #install package if needed
-
 
 # check if packages are not installed; if yes, install missing packages
 pacman::p_load(tidyverse, magrittr, janitor, dataPreparation, lubridate, skimr, # for data analysis
