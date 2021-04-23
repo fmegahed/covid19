@@ -125,3 +125,32 @@ tm_shape(cty_sf) + tm_polygons('match', title = 'Cluster Match', style = 'cont',
   tm_layout(aes.palette = list(div = list("Yes" = "#CAB2D6", "No" = "#6A3D9A"))) +
   tm_credits(paste0('Based on Data from March 01, 2020 - ', endDatePrintV), position=c("right", "bottom"))
 invisible( dev.off() ) # to suppress the unwanted output from dev.off
+
+
+
+# Creating the policy figure to explain why we chose the median Government Response Index
+endDate = '2021-01-02'
+policy = read_csv('https://raw.githubusercontent.com/OxCGRT/USA-covid-policy/master/data/OxCGRT_US_latest.csv')
+policy = filter(policy, !is.na(RegionName) | !RegionName %in% c('Alaska', 'Hawaii'))
+policy$state = toupper(policy$RegionName) # a state variable = an upper case of existing RegionName
+policy$Date %<>% ymd() # converting the Date data to a date format
+
+policySummary = policy %>% # calculating a summary table of median value for the GovernmentResponseIndex per state
+  filter(Date >= '2020-03-01' & Date <= endDate) %>% # to match our COVID Data timeSeries
+  group_by(state) %>% # perform computations using the median value, per state, for each index
+  summarise(GovernmentResponseIndexMedian = median(GovernmentResponseIndex, na.rm = TRUE))
+policySummary$state %<>%  str_replace('WASHINGTON DC', 'DISTRICT OF COLUMBIA') %>% str_to_title()
+
+
+policy %<>% group_by(RegionName) %>% filter(Date >= '2020-03-01' & Date <= endDate) %>% 
+  mutate(med = median(GovernmentResponseIndex))
+
+policy %>%
+  filter(RegionName %in% c('Alabama', 'Ohio', 'New York', 'Texas', 
+                           'South Dakota',  'California', 'Florida', 'North Carolina',
+                           'Washington') ) %>% 
+  ggplot(aes(x = Date, y = GovernmentResponseIndex, group = RegionName)) +
+  geom_line(size = 1.25) +
+  geom_hline(aes(yintercept = med), color = 'red') + 
+  facet_wrap(~RegionName) + theme_bw(base_size = 24) +
+  scale_x_date(date_breaks = "2 month", date_labels = "%b")
