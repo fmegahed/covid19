@@ -2,7 +2,11 @@
 
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path)) # automatically set working dir
 
-pacman::p_load(tidyverse, COVID19, magrittr, lubridate, fpp2, zoo, tmap, albersusa, tigris, RColorBrewer, ggpubr) # loading required packages
+pacman::p_load(tidyverse, COVID19, magrittr, lubridate, fpp2,
+               zoo, tmap, tigris, RColorBrewer, ggpubr, sf) # loading required packages
+
+if(require(urbnmapr)==FALSE) devtools::install_github('UrbanInstitute/urbnmapr')
+library(urbnmapr)
 
 ### National Data ----
 us = covid19(country = 'US', level = 1, start = '2020-03-01', end = '2021-01-02')
@@ -120,6 +124,14 @@ invisible( dev.off() ) # to suppress the unwanted output from dev.off
 endDate = '2021-01-02'
 endDatePrintV = format(ymd(endDate), format = "%b %d, %Y")
 
+cty_sf = get_urbn_map(map = "counties", sf = TRUE) %>% 
+  filter(!state_name %in% c('Alaska', 'Hawaii') )
+colnames(cty_sf)[1] = 'fips'
+
+# Getting the states map from the urbnmapr package and excluding non-continental US
+states_sf = get_urbn_map(map = "states", sf = TRUE) %>% 
+  filter(!state_name %in% c('Alaska', 'Hawaii') )
+
 clusterCounties <- readRDS("../Data/clusterCounties.rds")
 clusterCounties$fips = str_pad(clusterCounties$key_numeric, width = 5, side = 'left', pad = '0')
 clusterCounties %<>% ungroup()
@@ -128,18 +140,33 @@ clusterCounties$cluster_group %<>% as.factor()
 colorPal =  brewer.pal(n= levels(clusterCounties$cluster_group) %>% length(), 'Set2')
 names(colorPal) = levels(clusterCounties$cluster_group)
 
-cty_sf = counties_sf("aeqd") %>% filter(!state %in% c('Alaska', 'Hawaii')) # from albersusa
+
 cty_sf %<>% left_join(clusterCounties[, c('fips', 'cluster_group')], by = 'fips') # adding cluster_group to cty_sf
 
-png(filename = '../Figures/clusterMap.png', width = 1920, height =1080, pointsize = 16)
-tm_shape(cty_sf) + tm_polygons('cluster_group', title = 'Cluster #', palette = colorPal) +
-  tm_credits(paste0('Based on Data from March 01, 2020 - ', endDatePrintV), position=c("right", "bottom"))
+bbox_new = st_bbox(cty_sf)
+
+xrange = bbox_new$xmax - bbox_new$xmin # range of x values
+yrange = bbox_new$ymax - bbox_new$ymin # range of y values
+
+bbox_new[1] = bbox_new[1] - (0.05 * xrange) # xmin - left
+bbox_new[2] = bbox_new[2] - (0.1 * yrange) # ymin - bottom
+
+bbox_new = bbox_new %>%  # take the bounding box ...
+  st_as_sfc() # ... and make it a sf polygon
+
+
+
+tiff(filename = '../Figures/clusterMap.tiff', width = 9, height =6, units = "cm", res = 300)
+tm_shape(cty_sf, bbox = bbox_new) +
+  tm_borders(col = "gray40", lwd = 0.1) +
+  tm_fill('cluster_group', palette = colorPal, colorNA = "gray50",
+          title = "Cluster #") +
+  tm_shape(states_sf) + tm_borders(col = "black", lwd = 0.5) +
+  tm_credits(paste0('Based on Data from March 01, 2020 - ', endDatePrintV, " "),
+             position=c("right", "bottom"))
 invisible( dev.off() ) # to suppress the unwanted output from dev.off
 
-postscript(file = '../Figures/clusterMap.eps', width = 1920, height =1080, pointsize = 16)
-tm_shape(cty_sf) + tm_polygons('cluster_group', title = 'Cluster #', palette = colorPal) +
-  tm_credits(paste0('Based on Data from March 01, 2020 - ', endDatePrintV), position=c("right", "bottom"))
-invisible( dev.off() ) # to suppress the unwanted output from dev.off
+
 
 # Cluster Match
 finalModel <- readRDS("../Data/finalModel.rds")
@@ -156,15 +183,25 @@ endCol = ncol(mapResults)
 mapResults$LargestProbCluster = colnames(mapResults[, startCol:endCol])[apply(mapResults[, startCol:endCol], 1, which.max)] 
 mapResults$match = ifelse(mapResults$cluster_group == mapResults$LargestProbCluster, 'Yes', 'No') %>% as.factor()
 
-# Retrieving the U.S. county composite map as a simplefeature (since it has been overwritten)
-cty_sf = counties_sf("aeqd") %>% filter(!state %in% c('Alaska', 'Hawaii')) # from albersusa
+
+cty_sf = get_urbn_map(map = "counties", sf = TRUE) %>% 
+  filter(!state_name %in% c('Alaska', 'Hawaii') )
+colnames(cty_sf)[1] = 'fips'
+
+
 cty_sf %<>% geo_join(mapResults, by_sp= 'fips', by_df= 'fips')
 
+colorPal2 = c("Yes" = "#CAB2D6", "No" = "#6A3D9A")
 # Creating a static visual for use in the paper
-postscript(file = '../Figures/clusterMatchMap.eps', width = 1366, height =768, pointsize = 16)
-tm_shape(cty_sf) + tm_polygons('match', title = 'Cluster Match', style = 'cont', palette = "div") +
-  tm_layout(aes.palette = list(div = list("Yes" = "#CAB2D6", "No" = "#6A3D9A"))) +
-  tm_credits(paste0('Based on Data from March 01, 2020 - ', endDatePrintV), position=c("right", "bottom"))
+
+png(filename = '../Figures/clusterMatchMap.png',width = 9, height =6, units = "cm", res = 300)
+tm_shape(cty_sf, bbox = bbox_new) +
+  tm_borders(col = "gray40", lwd = 0.1) +
+  tm_fill('match', palette = colorPal2, colorNA = "gray50",
+          title = "Cluster Match") +
+  tm_shape(states_sf) + tm_borders(col = "black", lwd = 0.5) +
+  tm_credits(paste0('Based on Data from March 01, 2020 - ', endDatePrintV, " "),
+             position=c("right", "bottom"))
 invisible( dev.off() ) # to suppress the unwanted output from dev.off
 
 
